@@ -97,7 +97,7 @@ GET /api/fees/?since=1709251200              # Fee summary (optional since= unix
 GET /api/fees/vaults?since=1709251200        # Per-vault fee breakdown
 GET /api/fees/history?interval=weekly        # Fee history (weekly|monthly)
 
-GET /api/analysis/dead                       # Dead TVL (no reports in 90d)
+GET /api/analysis/dead                       # Dead TVL (no reports in 365d)
 GET /api/analysis/retired                    # Retired vault TVL
 GET /api/analysis/sticky                     # Sticky TVL analysis
 GET /api/analysis/depositors/:address        # Depositor concentration (?chainId=1)
@@ -135,7 +135,7 @@ Hono REST API on port 3456. Four route groups, each backed by a service:
 - `/api/tvl` — TVL summary, per-vault list, overlap details. Service computes latest-snapshot aggregation with V3 allocator→strategy overlap deduction.
 - `/api/comparison` — Our TVL vs DefiLlama (yearn-finance + yearn-curating), per-chain and per-category.
 - `/api/fees` — Fee revenue from harvest reports × fee rates. Supports `?since=` timestamp filter and `?interval=weekly|monthly` history.
-- `/api/analysis` — Dead TVL classification (no reports in 90d), retired vault TVL, depositor concentration.
+- `/api/analysis` — Dead TVL classification (no reports in 365d), retired vault TVL, depositor concentration.
 
 ### packages/dashboard
 React 19 + Vite + Recharts. 5 tabs: Overview, Comparison, Fees, Analysis, Vaults. Uses `useFetch<T>` hook to call API. Vite proxies `/api/*` to the API server.

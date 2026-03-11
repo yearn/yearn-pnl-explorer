@@ -71,7 +71,7 @@ interface VaultList {
 
 interface DeadTvl {
   summary: { totalDeadTvl: number; totalLowYieldTvl: number; healthyTvl: number; deadVaultCount: number; lowYieldCount: number; healthyCount: number };
-  vaults: Array<{ address: string; chainId: number; name: string | null; category: string; tvlUsd: number; classification: string; gains90d: number; reportCount90d: number }>;
+  vaults: Array<{ address: string; chainId: number; name: string | null; category: string; tvlUsd: number; classification: string; gains365d: number; reportCount365d: number }>;
 }
 
 // --- Formatting helpers ---
@@ -412,7 +412,7 @@ async function generateReport() {
   // Top dead vaults
   const deadVaults = deadTvl.vaults.filter((v) => v.classification === "dead").slice(0, 10);
   if (deadVaults.length > 0) {
-    doc.fontSize(10).font("Helvetica-Bold").fillColor("#ffffff").text("Top Dead Vaults (no reports in 90d)", MARGIN);
+    doc.fontSize(10).font("Helvetica-Bold").fillColor("#ffffff").text("Top Dead Vaults (no reports in 365d)", MARGIN);
     doc.moveDown(0.3);
     addTableRow(doc, [
       { text: "Vault", width: 200 },

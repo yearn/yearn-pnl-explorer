@@ -15,11 +15,11 @@ interface DeadTvlResult {
     name: string | null;
     category: string;
     tvlUsd: number;
-    gains90d: number;
+    gains365d: number;
     gainToTvlRatio: number;
-    feeRevenue90d: number;
+    feeRevenue365d: number;
     classification: string;
-    reportCount90d: number;
+    reportCount365d: number;
   }>;
 }
 
@@ -94,7 +94,7 @@ export function AnalysisPanel() {
         <div className="metric">
           <div className="label">Dead TVL</div>
           <div className="value text-red">{fmt(s.totalDeadTvl)}</div>
-          <div className="sub">{s.deadVaultCount} vaults, no reports in 90d</div>
+          <div className="sub">{s.deadVaultCount} vaults, no reports in 365d</div>
         </div>
         <div className="metric">
           <div className="label">Low-Yield TVL</div>
@@ -132,9 +132,9 @@ export function AnalysisPanel() {
               <th>Chain</th>
               <th>Cat</th>
               <th className="text-right">TVL</th>
-              <th className="text-right">90d Gains</th>
+              <th className="text-right">365d Gains</th>
               <th className="text-right">Gain/TVL</th>
-              <th className="text-right">90d Reports</th>
+              <th className="text-right">365d Reports</th>
               <th>Status</th>
             </tr>
           </thead>
@@ -145,9 +145,9 @@ export function AnalysisPanel() {
                 <td className="text-dim">{CHAIN_NAMES[v.chainId] || v.chainId}</td>
                 <td className="text-dim">{v.category}</td>
                 <td className="text-right">{fmt(v.tvlUsd)}</td>
-                <td className="text-right">{fmt(v.gains90d)}</td>
+                <td className="text-right">{fmt(v.gains365d)}</td>
                 <td className="text-right">{(v.gainToTvlRatio * 100).toFixed(2)}%</td>
-                <td className="text-right">{v.reportCount90d}</td>
+                <td className="text-right">{v.reportCount365d}</td>
                 <td><span className={badgeClass(v.classification)}>{v.classification}</span></td>
               </tr>
             ))}

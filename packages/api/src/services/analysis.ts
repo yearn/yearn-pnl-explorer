@@ -15,12 +15,12 @@ interface DeadTvlVault {
   name: string | null;
   category: VaultCategory;
   tvlUsd: number;
-  gains90d: number;
+  gains365d: number;
   gainToTvlRatio: number;
-  feeRevenue90d: number;
+  feeRevenue365d: number;
   classification: Classification;
   lastReportDate: string | null;
-  reportCount90d: number;
+  reportCount365d: number;
 }
 
 interface DeadTvlResult {
@@ -66,7 +66,7 @@ interface DepositorEntry {
 /** Analyze dead and underperforming vaults based on recent strategy reports */
 export async function getDeadTvlAnalysis(): Promise<DeadTvlResult> {
   const now = Math.floor(Date.now() / 1000);
-  const ninetyDaysAgo = now - 90 * 24 * 3600;
+  const cutoff = now - 365 * 24 * 3600;
 
   // Get all active (non-retired) vaults with their latest snapshot
   const latestIds = db
@@ -85,6 +85,7 @@ export async function getDeadTvlAnalysis(): Promise<DeadTvlResult> {
       chainId: vaults.chainId,
       name: vaults.name,
       category: vaults.category,
+      vaultType: vaults.vaultType,
       tvlUsd: vaultSnapshots.tvlUsd,
     })
     .from(vaults)
@@ -101,7 +102,12 @@ export async function getDeadTvlAnalysis(): Promise<DeadTvlResult> {
     const tvlUsd = vault.tvlUsd ?? 0;
     if (tvlUsd <= 10_000) continue;
 
-    // Aggregate strategy reports in last 90 days
+    // Skip vaults that inherently don't have harvest reports:
+    // - Curation vaults (Morpho/Turtle Club) are not indexed by Kong
+    // - V3 strategies (vaultType=2) receive allocations; reports live on the parent allocator
+    if (vault.category === "curation" || vault.vaultType === 2) continue;
+
+    // Aggregate strategy reports in last 365 days
     const [reportAgg] = await db
       .select({
         totalGain: sql<number>`COALESCE(SUM(${strategyReports.gainUsd}), 0)`,
@@ -111,13 +117,13 @@ export async function getDeadTvlAnalysis(): Promise<DeadTvlResult> {
       .from(strategyReports)
       .where(and(
         eq(strategyReports.vaultId, vault.id),
-        gte(strategyReports.blockTime, ninetyDaysAgo),
+        gte(strategyReports.blockTime, cutoff),
       ));
 
-    const gains90d = reportAgg?.totalGain || 0;
-    const reportCount90d = reportAgg?.count || 0;
-    const hasRecentReport = reportCount90d > 0;
-    const gainToTvlRatio = tvlUsd > 0 ? gains90d / tvlUsd : 0;
+    const gains365d = reportAgg?.totalGain || 0;
+    const reportCount365d = reportAgg?.count || 0;
+    const hasRecentReport = reportCount365d > 0;
+    const gainToTvlRatio = tvlUsd > 0 ? gains365d / tvlUsd : 0;
 
     // Get performance fee
     const [feeRow] = await db
@@ -128,7 +134,7 @@ export async function getDeadTvlAnalysis(): Promise<DeadTvlResult> {
       .limit(1);
 
     const performanceFee = feeRow?.performanceFee || 0;
-    const feeRevenue90d = gains90d * (performanceFee / 10000);
+    const feeRevenue365d = gains365d * (performanceFee / 10000);
 
     // Classify
     let classification: Classification;
@@ -150,12 +156,12 @@ export async function getDeadTvlAnalysis(): Promise<DeadTvlResult> {
       name: vault.name,
       category: vault.category as VaultCategory,
       tvlUsd,
-      gains90d,
+      gains365d,
       gainToTvlRatio,
-      feeRevenue90d,
+      feeRevenue365d,
       classification,
       lastReportDate,
-      reportCount90d,
+      reportCount365d,
     });
   }
 

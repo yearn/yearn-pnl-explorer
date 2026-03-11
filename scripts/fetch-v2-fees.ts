@@ -1,0 +1,112 @@
+/**
+ * Read actual V2 vault fee rates from on-chain.
+ * Kong doesn't return fees for V2 vaults, so fetch-kong.ts uses conservative defaults.
+ * This script reads the real managementFee() and performanceFee() values and updates fee_configs.
+ */
+import { createPublicClient, http, parseAbi } from "viem";
+import { mainnet, optimism, base, arbitrum, polygon } from "viem/chains";
+import { db, vaults, feeConfigs } from "@yearn-tvl/db";
+import { eq, and } from "drizzle-orm";
+
+const abi = parseAbi([
+  "function managementFee() view returns (uint256)",
+  "function performanceFee() view returns (uint256)",
+]);
+
+const chains: Record<number, { chain: any; rpcEnv: string }> = {
+  1: { chain: mainnet, rpcEnv: "RPC_URI_FOR_1" },
+  10: { chain: optimism, rpcEnv: "RPC_URI_FOR_10" },
+  137: { chain: polygon, rpcEnv: "RPC_URI_FOR_137" },
+  8453: { chain: base, rpcEnv: "RPC_URI_FOR_8453" },
+  42161: { chain: arbitrum, rpcEnv: "RPC_URI_FOR_42161" },
+};
+
+export async function fetchV2Fees() {
+  const v2Vaults = await db.query.vaults.findMany({
+    where: and(eq(vaults.category, "v2"), eq(vaults.isRetired, false)),
+  });
+
+  console.log(`Reading on-chain fees for ${v2Vaults.length} V2 vaults...\n`);
+
+  let updated = 0;
+  let errors = 0;
+  const rateDist: Record<string, number> = {};
+
+  // Group by chain
+  const byChain = new Map<number, typeof v2Vaults>();
+  for (const v of v2Vaults) {
+    if (!byChain.has(v.chainId)) byChain.set(v.chainId, []);
+    byChain.get(v.chainId)!.push(v);
+  }
+
+  for (const [chainId, chainVaults] of byChain) {
+    const config = chains[chainId];
+    if (!config) {
+      console.log(`  Chain ${chainId}: no config, skipping ${chainVaults.length} vaults`);
+      continue;
+    }
+
+    const rpc = process.env[config.rpcEnv] || process.env.ETH_RPC_URL;
+    if (!rpc) {
+      console.log(`  Chain ${chainId}: no RPC, skipping`);
+      continue;
+    }
+
+    const client = createPublicClient({ chain: config.chain, transport: http(rpc) });
+
+    for (const v of chainVaults) {
+      try {
+        const [mgmt, perf] = await Promise.all([
+          client.readContract({ address: v.address as `0x${string}`, abi, functionName: "managementFee" }),
+          client.readContract({ address: v.address as `0x${string}`, abi, functionName: "performanceFee" }),
+        ]);
+
+        const perfFee = Number(perf);
+        const mgmtFee = Number(mgmt);
+        const key = `perf=${perfFee} mgmt=${mgmtFee}`;
+        rateDist[key] = (rateDist[key] || 0) + 1;
+
+        // Update fee config
+        const existing = await db.query.feeConfigs.findFirst({
+          where: eq(feeConfigs.vaultId, v.id),
+        });
+
+        const now = new Date().toISOString();
+        if (existing) {
+          if (existing.performanceFee !== perfFee || existing.managementFee !== mgmtFee) {
+            await db.update(feeConfigs).set({
+              performanceFee: perfFee,
+              managementFee: mgmtFee,
+              updatedAt: now,
+            }).where(eq(feeConfigs.id, existing.id));
+            updated++;
+          }
+        } else {
+          await db.insert(feeConfigs).values({
+            vaultId: v.id,
+            performanceFee: perfFee,
+            managementFee: mgmtFee,
+            updatedAt: now,
+          });
+          updated++;
+        }
+      } catch {
+        errors++;
+      }
+    }
+    console.log(`  Chain ${chainId}: ${chainVaults.length} vaults checked`);
+  }
+
+  console.log(`\nUpdated ${updated} fee configs, ${errors} errors`);
+  console.log("Rate distribution:");
+  for (const [key, count] of Object.entries(rateDist).sort((a, b) => b[1] - a[1])) {
+    console.log(`  ${key}: ${count} vaults`);
+  }
+
+  return { updated, errors };
+}
+
+if (import.meta.main) {
+  const result = await fetchV2Fees();
+  console.log("Done:", result);
+}

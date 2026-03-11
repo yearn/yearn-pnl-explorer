@@ -1,0 +1,12 @@
+{
+  "name": "@yearn-tvl/scripts",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "graphql-request": "^7",
+    "viem": "^2",
+    "@yearn-tvl/db": "workspace:*",
+    "@yearn-tvl/shared": "workspace:*"
+  }
+}

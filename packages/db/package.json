@@ -1,0 +1,21 @@
+{
+  "name": "@yearn-tvl/db",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "drizzle-orm": "^0.38",
+    "@yearn-tvl/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "drizzle-kit": "^0.30"
+  },
+  "scripts": {
+    "generate": "drizzle-kit generate",
+    "migrate": "bun run src/migrate.ts",
+    "studio": "drizzle-kit studio"
+  }
+}

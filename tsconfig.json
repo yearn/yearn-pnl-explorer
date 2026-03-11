@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "strict": true,
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "outDir": "dist",
+    "paths": {
+      "@yearn-tvl/api": ["./packages/api/src"],
+      "@yearn-tvl/db": ["./packages/db/src"],
+      "@yearn-tvl/shared": ["./packages/shared/src"]
+    }
+  },
+  "exclude": ["node_modules", "dist"]
+}

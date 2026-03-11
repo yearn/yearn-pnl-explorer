@@ -1,0 +1,14 @@
+{
+  "name": "@yearn-tvl/api",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "hono": "^4",
+    "@yearn-tvl/db": "workspace:*",
+    "@yearn-tvl/shared": "workspace:*"
+  }
+}

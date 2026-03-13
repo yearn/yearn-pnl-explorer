@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useFetch, fmt, shortAddr } from "../hooks";
+import { useFetch, fmt, shortAddr, useSort } from "../hooks";
 
 interface VaultTvl {
   address: string;
@@ -49,6 +49,8 @@ const EXPLORER_URLS: Record<number, string> = {
 export function VaultsPanel() {
   const [includeRetired, setIncludeRetired] = useState(false);
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
+  const vaultSort = useSort("tvl");
+  const overlapSort = useSort("overlap");
 
   const url = `/api/tvl/vaults?includeRetired=${includeRetired}${categoryFilter !== "all" ? `&category=${categoryFilter}` : ""}`;
   const { data, loading } = useFetch<{ count: number; vaults: VaultTvl[] }>(url);
@@ -65,6 +67,26 @@ export function VaultsPanel() {
       vaultOverlapMap.set(key, (vaultOverlapMap.get(key) || 0) + o.overlapUsd);
     }
   }
+
+  const sortedVaults = vaultSort.sorted(data.vaults, {
+    name: (v) => v.name || "",
+    address: (v) => v.address,
+    chain: (v) => CHAIN_NAMES[v.chainId] || String(v.chainId),
+    category: (v) => v.category,
+    type: (v) => v.vaultType ?? 0,
+    tvl: (v) => v.tvlUsd,
+  });
+
+  const sortedOverlaps = overlap
+    ? overlapSort.sorted(overlap.overlaps, {
+        source: (o) => o.sourceVault,
+        target: (o) => o.targetVault,
+        strategy: (o) => o.strategyAddress,
+        flow: (o) => `${o.sourceCategory} → ${o.targetCategory}`,
+        detection: (o) => o.detectionMethod,
+        overlap: (o) => o.overlapUsd,
+      })
+    : [];
 
   return (
     <>
@@ -103,16 +125,16 @@ export function VaultsPanel() {
         <table>
           <thead>
             <tr>
-              <th>Vault</th>
-              <th>Address</th>
-              <th>Chain</th>
-              <th>Cat</th>
-              <th>Type</th>
-              <th className="text-right">TVL</th>
+              <th {...vaultSort.th("name", "Vault")} />
+              <th {...vaultSort.th("address", "Address")} />
+              <th {...vaultSort.th("chain", "Chain")} />
+              <th {...vaultSort.th("category", "Cat")} />
+              <th {...vaultSort.th("type", "Type")} />
+              <th {...vaultSort.th("tvl", "TVL", "text-right")} />
             </tr>
           </thead>
           <tbody>
-            {data.vaults.slice(0, 50).map((v) => (
+            {sortedVaults.slice(0, 50).map((v) => (
               <tr key={`${v.chainId}:${v.address}`}>
                 <td>{v.name?.slice(0, 30) || "-"}</td>
                 <td className="text-dim">
@@ -149,16 +171,16 @@ export function VaultsPanel() {
           <table>
             <thead>
               <tr>
-                <th>Source Vault</th>
-                <th>Target Vault</th>
-                <th>Via Strategy</th>
-                <th>Flow</th>
-                <th>Detection</th>
-                <th className="text-right">Overlap</th>
+                <th {...overlapSort.th("source", "Source Vault")} />
+                <th {...overlapSort.th("target", "Target Vault")} />
+                <th {...overlapSort.th("strategy", "Via Strategy")} />
+                <th {...overlapSort.th("flow", "Flow")} />
+                <th {...overlapSort.th("detection", "Detection")} />
+                <th {...overlapSort.th("overlap", "Overlap", "text-right")} />
               </tr>
             </thead>
             <tbody>
-              {overlap.overlaps.slice(0, 20).map((o, i) => (
+              {sortedOverlaps.slice(0, 20).map((o, i) => (
                 <tr key={i}>
                   <td>{shortAddr(o.sourceVault)}</td>
                   <td>{shortAddr(o.targetVault)}</td>

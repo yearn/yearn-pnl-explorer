@@ -1,4 +1,4 @@
-import { useFetch, fmt } from "../hooks";
+import { useFetch, fmt, useSort } from "../hooks";
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer,
 } from "recharts";
@@ -42,9 +42,26 @@ export function FeesPanel() {
   const { data: summary, loading: l1 } = useFetch<FeeSummary>("/api/fees");
   const { data: history, loading: l2 } = useFetch<FeeHistory>("/api/fees/history?interval=monthly");
   const { data: vaultData, loading: l3 } = useFetch<{ count: number; vaults: VaultFee[] }>("/api/fees/vaults");
+  const chainSort = useSort("feeRevenue");
+  const vaultSort = useSort("totalFeeRevenue");
 
   if (l1 || l2 || l3) return <div className="loading">Loading fee data...</div>;
   if (!summary || !history || !vaultData) return null;
+
+  const chainRows = Object.entries(summary.byChain).map(([chain, d]) => ({ chain, ...d }));
+  const sortedChains = chainSort.sorted(chainRows, {
+    chain: (c) => c.chain,
+    feeRevenue: (c) => c.feeRevenue,
+    gains: (c) => c.gains,
+    vaults: (c) => c.vaultCount,
+  });
+
+  const sortedVaults = vaultSort.sorted(vaultData.vaults, {
+    name: (v) => v.name || "",
+    tvl: (v) => v.tvlUsd,
+    totalFeeRevenue: (v) => v.totalFeeRevenue,
+    reports: (v) => v.reportCount,
+  });
 
   return (
     <>
@@ -111,23 +128,21 @@ export function FeesPanel() {
           <table>
             <thead>
               <tr>
-                <th>Chain</th>
-                <th className="text-right">Fee Revenue</th>
-                <th className="text-right">Gains</th>
-                <th className="text-right">Vaults</th>
+                <th {...chainSort.th("chain", "Chain")} />
+                <th {...chainSort.th("feeRevenue", "Fee Revenue", "text-right")} />
+                <th {...chainSort.th("gains", "Gains", "text-right")} />
+                <th {...chainSort.th("vaults", "Vaults", "text-right")} />
               </tr>
             </thead>
             <tbody>
-              {Object.entries(summary.byChain)
-                .sort((a, b) => b[1].feeRevenue - a[1].feeRevenue)
-                .map(([chain, d]) => (
-                  <tr key={chain}>
-                    <td>{chain}</td>
-                    <td className="text-right">{fmt(d.feeRevenue)}</td>
-                    <td className="text-right">{fmt(d.gains)}</td>
-                    <td className="text-right">{d.vaultCount}</td>
-                  </tr>
-                ))}
+              {sortedChains.map((c) => (
+                <tr key={c.chain}>
+                  <td>{c.chain}</td>
+                  <td className="text-right">{fmt(c.feeRevenue)}</td>
+                  <td className="text-right">{fmt(c.gains)}</td>
+                  <td className="text-right">{c.vaultCount}</td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>
@@ -137,14 +152,14 @@ export function FeesPanel() {
           <table>
             <thead>
               <tr>
-                <th>Vault</th>
-                <th className="text-right">TVL</th>
-                <th className="text-right">Fees</th>
-                <th className="text-right">Reports</th>
+                <th {...vaultSort.th("name", "Vault")} />
+                <th {...vaultSort.th("tvl", "TVL", "text-right")} />
+                <th {...vaultSort.th("totalFeeRevenue", "Fees", "text-right")} />
+                <th {...vaultSort.th("reports", "Reports", "text-right")} />
               </tr>
             </thead>
             <tbody>
-              {vaultData.vaults.slice(0, 15).map((v) => (
+              {sortedVaults.slice(0, 15).map((v) => (
                 <tr key={`${v.chainId}:${v.address}`}>
                   <td>{v.name?.slice(0, 25) || v.address.slice(0, 10)}</td>
                   <td className="text-right">{fmt(v.tvlUsd)}</td>

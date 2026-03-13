@@ -1,4 +1,4 @@
-import { useFetch, fmt } from "../hooks";
+import { useFetch, fmt, useSort } from "../hooks";
 
 interface DeadTvlResult {
   summary: {
@@ -83,12 +83,39 @@ export function AnalysisPanel() {
   const { data: dead, loading: l1 } = useFetch<DeadTvlResult>("/api/analysis/dead");
   const { data: retired, loading: l2 } = useFetch<RetiredResult>("/api/analysis/retired");
   const { data: sticky, loading: l3 } = useFetch<StickyResult>("/api/analysis/sticky");
+  const healthSort = useSort("tvl");
+  const retiredSort = useSort("tvl");
+  const stickySort = useSort("tvl");
 
   if (l1 || l2 || l3) return <div className="loading">Loading analysis...</div>;
   if (!dead || !retired || !sticky) return null;
 
   const s = dead.summary;
   const totalAnalyzed = s.totalDeadTvl + s.totalLowYieldTvl + s.healthyTvl;
+
+  const sortedHealth = healthSort.sorted(dead.vaults, {
+    name: (v) => v.name || "",
+    chain: (v) => CHAIN_NAMES[v.chainId] || String(v.chainId),
+    category: (v) => v.category,
+    tvl: (v) => v.tvlUsd,
+    gains: (v) => v.gains365d,
+    ratio: (v) => v.gainToTvlRatio,
+    reports: (v) => v.reportCount365d,
+    status: (v) => v.classification,
+  });
+
+  const sortedRetired = retiredSort.sorted(retired.vaults, {
+    name: (v) => v.name || "",
+    chain: (v) => CHAIN_NAMES[v.chainId] || String(v.chainId),
+    tvl: (v) => v.tvlUsd,
+  });
+
+  const stickyFiltered = sticky.vaults.filter((v) => v.tvlUsd > 100_000);
+  const sortedSticky = stickySort.sorted(stickyFiltered, {
+    name: (v) => v.name || "",
+    tvl: (v) => v.tvlUsd,
+    depositors: (v) => v.depositorCount,
+  });
 
   return (
     <>
@@ -121,22 +148,22 @@ export function AnalysisPanel() {
       </div>
 
       <div className="card">
-        <h2>Vault Health (TVL &gt; $10K, sorted by TVL)</h2>
+        <h2>Vault Health (TVL &gt; $10K)</h2>
         <table>
           <thead>
             <tr>
-              <th>Vault</th>
-              <th>Chain</th>
-              <th>Cat</th>
-              <th className="text-right">TVL</th>
-              <th className="text-right">365d Gains</th>
-              <th className="text-right">Gain/TVL</th>
-              <th className="text-right">365d Reports</th>
-              <th>Status</th>
+              <th {...healthSort.th("name", "Vault")} />
+              <th {...healthSort.th("chain", "Chain")} />
+              <th {...healthSort.th("category", "Cat")} />
+              <th {...healthSort.th("tvl", "TVL", "text-right")} />
+              <th {...healthSort.th("gains", "365d Gains", "text-right")} />
+              <th {...healthSort.th("ratio", "Gain/TVL", "text-right")} />
+              <th {...healthSort.th("reports", "365d Reports", "text-right")} />
+              <th {...healthSort.th("status", "Status")} />
             </tr>
           </thead>
           <tbody>
-            {dead.vaults.slice(0, 30).map((v) => (
+            {sortedHealth.slice(0, 30).map((v) => (
               <tr key={`${v.chainId}:${v.address}`}>
                 <td>{v.name?.slice(0, 28) || v.address.slice(0, 10)}<ExplorerLink address={v.address} chainId={v.chainId} /></td>
                 <td className="text-dim">{CHAIN_NAMES[v.chainId] || v.chainId}</td>
@@ -158,13 +185,13 @@ export function AnalysisPanel() {
           <table>
             <thead>
               <tr>
-                <th>Vault</th>
-                <th>Chain</th>
-                <th className="text-right">TVL</th>
+                <th {...retiredSort.th("name", "Vault")} />
+                <th {...retiredSort.th("chain", "Chain")} />
+                <th {...retiredSort.th("tvl", "TVL", "text-right")} />
               </tr>
             </thead>
             <tbody>
-              {retired.vaults.slice(0, 10).map((v) => (
+              {sortedRetired.slice(0, 10).map((v) => (
                 <tr key={`${v.chainId}:${v.address}`}>
                   <td>{v.name?.slice(0, 30) || v.address.slice(0, 10)}<ExplorerLink address={v.address} chainId={v.chainId} /></td>
                   <td className="text-dim">{CHAIN_NAMES[v.chainId] || v.chainId}</td>
@@ -180,22 +207,19 @@ export function AnalysisPanel() {
           <table>
             <thead>
               <tr>
-                <th>Vault</th>
-                <th className="text-right">TVL</th>
-                <th className="text-right">Depositors</th>
+                <th {...stickySort.th("name", "Vault")} />
+                <th {...stickySort.th("tvl", "TVL", "text-right")} />
+                <th {...stickySort.th("depositors", "Depositors", "text-right")} />
               </tr>
             </thead>
             <tbody>
-              {sticky.vaults
-                .filter((v) => v.tvlUsd > 100_000)
-                .slice(0, 15)
-                .map((v) => (
-                  <tr key={`${v.chainId}:${v.address}`}>
-                    <td>{v.name?.slice(0, 28) || v.address.slice(0, 10)}<ExplorerLink address={v.address} chainId={v.chainId} /></td>
-                    <td className="text-right">{fmt(v.tvlUsd)}</td>
-                    <td className="text-right">{v.depositorCount}</td>
-                  </tr>
-                ))}
+              {sortedSticky.slice(0, 15).map((v) => (
+                <tr key={`${v.chainId}:${v.address}`}>
+                  <td>{v.name?.slice(0, 28) || v.address.slice(0, 10)}<ExplorerLink address={v.address} chainId={v.chainId} /></td>
+                  <td className="text-right">{fmt(v.tvlUsd)}</td>
+                  <td className="text-right">{v.depositorCount}</td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>

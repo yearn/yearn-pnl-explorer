@@ -1,4 +1,4 @@
-import { useFetch, fmt, pct } from "../hooks";
+import { useFetch, fmt, pct, useSort } from "../hooks";
 
 interface Comparison {
   ourTotal: number;
@@ -20,12 +20,29 @@ interface Comparison {
 
 export function ComparisonPanel() {
   const { data, loading, error } = useFetch<Comparison>("/api/comparison");
+  const catSort = useSort("ours");
+  const chainSort = useSort("ours");
 
   if (loading) return <div className="loading">Loading comparison...</div>;
   if (error) return <div className="error">Error: {error}</div>;
   if (!data) return null;
 
   const diffColor = Math.abs(data.differencePercent) < 5 ? "text-green" : "text-yellow";
+
+  const sortedCats = catSort.sorted(data.byCategory, {
+    category: (c) => c.category,
+    protocol: (c) => c.defillamaProtocol,
+    ours: (c) => c.ours,
+    defillama: (c) => c.defillama,
+    diff: (c) => c.difference,
+  });
+
+  const sortedChains = chainSort.sorted(data.byChain, {
+    chain: (c) => c.chain,
+    ours: (c) => c.ours,
+    defillama: (c) => c.defillama,
+    diff: (c) => c.difference,
+  });
 
   return (
     <>
@@ -68,15 +85,15 @@ export function ComparisonPanel() {
           <table>
             <thead>
               <tr>
-                <th>Category</th>
-                <th>DL Protocol</th>
-                <th className="text-right">Ours</th>
-                <th className="text-right">DefiLlama</th>
-                <th className="text-right">Diff</th>
+                <th {...catSort.th("category", "Category")} />
+                <th {...catSort.th("protocol", "DL Protocol")} />
+                <th {...catSort.th("ours", "Ours", "text-right")} />
+                <th {...catSort.th("defillama", "DefiLlama", "text-right")} />
+                <th {...catSort.th("diff", "Diff", "text-right")} />
               </tr>
             </thead>
             <tbody>
-              {data.byCategory.map((c) => (
+              {sortedCats.map((c) => (
                 <tr key={c.category}>
                   <td>{c.category}</td>
                   <td className="text-dim">{c.defillamaProtocol}</td>
@@ -96,14 +113,14 @@ export function ComparisonPanel() {
           <table>
             <thead>
               <tr>
-                <th>Chain</th>
-                <th className="text-right">Ours</th>
-                <th className="text-right">DefiLlama</th>
-                <th className="text-right">Diff</th>
+                <th {...chainSort.th("chain", "Chain")} />
+                <th {...chainSort.th("ours", "Ours", "text-right")} />
+                <th {...chainSort.th("defillama", "DefiLlama", "text-right")} />
+                <th {...chainSort.th("diff", "Diff", "text-right")} />
               </tr>
             </thead>
             <tbody>
-              {data.byChain.map((c) => (
+              {sortedChains.map((c) => (
                 <tr key={c.chain}>
                   <td>{c.chain}</td>
                   <td className="text-right">{fmt(c.ours)}</td>

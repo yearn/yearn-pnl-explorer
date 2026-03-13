@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useFetch, fmt, shortAddr } from "../hooks";
+import { useFetch, fmt, shortAddr, useSort } from "../hooks";
 import {
   ScatterChart, Scatter, XAxis, YAxis, ZAxis, Tooltip, ResponsiveContainer,
   BarChart, Bar, Cell,
@@ -122,6 +122,8 @@ export function ProfitabilityPanel() {
   const [catFilter, setCatFilter] = useState("all");
   const [confFilter, setConfFilter] = useState("all");
   const [page, setPage] = useState(0);
+  const catSort = useSort("fees");
+  const chainSort = useSort("fees");
 
   if (loading) return <div className="loading">Loading profitability data...</div>;
   if (error) return <div className="error">Error: {error}</div>;
@@ -255,15 +257,21 @@ export function ProfitabilityPanel() {
           <table style={{ marginTop: "0.5rem" }}>
             <thead>
               <tr>
-                <th>Category</th>
-                <th className="text-right">TVL</th>
-                <th className="text-right">Fees (ann.)</th>
-                <th className="text-right">Fee Yield</th>
-                <th className="text-right">Vaults</th>
+                <th {...catSort.th("category", "Category")} />
+                <th {...catSort.th("tvl", "TVL", "text-right")} />
+                <th {...catSort.th("fees", "Fees (ann.)", "text-right")} />
+                <th {...catSort.th("feeYield", "Fee Yield", "text-right")} />
+                <th {...catSort.th("vaults", "Vaults", "text-right")} />
               </tr>
             </thead>
             <tbody>
-              {data.byCategory.map((c) => (
+              {catSort.sorted(data.byCategory, {
+                category: (c) => c.category,
+                tvl: (c) => c.tvl,
+                fees: (c) => c.fees,
+                feeYield: (c) => c.feeYield,
+                vaults: (c) => c.vaultCount,
+              }).map((c) => (
                 <tr key={c.category}>
                   <td>{c.category.toUpperCase()}</td>
                   <td className="text-right">{fmt(c.tvl)}</td>
@@ -281,15 +289,21 @@ export function ProfitabilityPanel() {
           <table>
             <thead>
               <tr>
-                <th>Chain</th>
-                <th className="text-right">TVL</th>
-                <th className="text-right">Fees (ann.)</th>
-                <th className="text-right">Fee Yield</th>
-                <th className="text-right">Vaults</th>
+                <th {...chainSort.th("chain", "Chain")} />
+                <th {...chainSort.th("tvl", "TVL", "text-right")} />
+                <th {...chainSort.th("fees", "Fees (ann.)", "text-right")} />
+                <th {...chainSort.th("feeYield", "Fee Yield", "text-right")} />
+                <th {...chainSort.th("vaults", "Vaults", "text-right")} />
               </tr>
             </thead>
             <tbody>
-              {data.byChain.map((c) => (
+              {chainSort.sorted(data.byChain, {
+                chain: (c) => c.chain,
+                tvl: (c) => c.tvl,
+                fees: (c) => c.fees,
+                feeYield: (c) => c.feeYield,
+                vaults: (c) => c.vaultCount,
+              }).map((c) => (
                 <tr key={c.chain}>
                   <td>{c.chain}</td>
                   <td className="text-right">{fmt(c.tvl)}</td>

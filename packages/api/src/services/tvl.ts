@@ -1,12 +1,13 @@
 /**
  * TVL calculation engine.
  * Aggregates vault snapshots, deducts double-counted overlap, produces metrics.
- * Separates active vs retired vault TVL for accurate DefiLlama comparison.
+ * Includes retired vault TVL in totals (matching DefiLlama behavior — DL counts
+ * any vault with positive on-chain TVL regardless of retirement status).
  */
 import { db, vaults, vaultSnapshots, strategies, strategyDebts } from "@yearn-tvl/db";
 import { eq, and, desc, sql } from "drizzle-orm";
 import type { TvlSummary, VaultTvl, OverlapDetail, VaultCategory } from "@yearn-tvl/shared";
-import { CHAIN_NAMES, STRATEGY_OVERLAP_REGISTRY } from "@yearn-tvl/shared";
+import { CHAIN_NAMES, STRATEGY_OVERLAP_REGISTRY, CROSS_CHAIN_OVERLAP_REGISTRY } from "@yearn-tvl/shared";
 
 /** Get the latest snapshot for each vault */
 const getLatestSnapshots = async () => {
@@ -159,10 +160,15 @@ export const calculateTvl = async (): Promise<TvlSummary> => {
           : { active: acc.vaultCount.active + 1 }),
       };
 
+      // Include ALL vaults in tvlByChain (active + retired).
+      // DL counts any vault with on-chain TVL regardless of retirement status.
+      const updatedChain = { ...acc.tvlByChain, [chainName]: (acc.tvlByChain[chainName] || 0) + tvl };
+
       if (vault.isRetired) {
         return {
           ...acc,
           retiredTvlByCategory: { ...acc.retiredTvlByCategory, [cat]: acc.retiredTvlByCategory[cat] + tvl },
+          tvlByChain: updatedChain,
           vaultCount: counts,
         };
       }
@@ -170,7 +176,7 @@ export const calculateTvl = async (): Promise<TvlSummary> => {
       return {
         ...acc,
         tvlByCategory: { ...acc.tvlByCategory, [cat]: acc.tvlByCategory[cat] + tvl },
-        tvlByChain: { ...acc.tvlByChain, [chainName]: (acc.tvlByChain[chainName] || 0) + tvl },
+        tvlByChain: updatedChain,
         vaultCount: counts,
       };
     },
@@ -182,11 +188,25 @@ export const calculateTvl = async (): Promise<TvlSummary> => {
     },
   );
 
-  const { tvlByCategory, tvlByChain, vaultCount } = agg;
+  const { tvlByCategory, retiredTvlByCategory, tvlByChain, vaultCount } = agg;
   const activeRaw = tvlByCategory.v1 + tvlByCategory.v2 + tvlByCategory.v3 + tvlByCategory.curation;
+  const retiredRaw = retiredTvlByCategory.v1 + retiredTvlByCategory.v2 + retiredTvlByCategory.v3 + retiredTvlByCategory.curation;
+
+  // Cross-chain overlap: retired vaults whose capital migrated to another chain.
+  // Deduct their TVL to avoid double-counting with the destination vaults.
+  const crossChainAddresses = new Set(
+    CROSS_CHAIN_OVERLAP_REGISTRY.map((e) => `${e.sourceChainId}:${e.sourceVaultAddress.toLowerCase()}`),
+  );
+  const crossChainOverlap = snapshots
+    .filter(({ vault }) =>
+      vault.isRetired && crossChainAddresses.has(`${vault.chainId}:${vault.address.toLowerCase()}`),
+    )
+    .reduce((sum, { snapshot }) => sum + (snapshot.tvlUsd ?? 0), 0);
 
   return {
-    totalTvl: activeRaw - totalOverlap,
+    totalTvl: activeRaw + retiredRaw - totalOverlap - crossChainOverlap,
+    activeTvl: activeRaw,
+    retiredTvl: retiredRaw,
     v1Tvl: tvlByCategory.v1,
     v2Tvl: tvlByCategory.v2,
     v3Tvl: tvlByCategory.v3,
@@ -194,6 +214,7 @@ export const calculateTvl = async (): Promise<TvlSummary> => {
     overlapAmount: totalOverlap,
     tvlByChain,
     tvlByCategory,
+    retiredTvlByCategory,
     vaultCount,
   };
 };

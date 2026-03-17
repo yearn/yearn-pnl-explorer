@@ -2,8 +2,8 @@
  * DefiLlama comparison service.
  * Compares our TVL calculations against DefiLlama's reported figures.
  */
-import { db, vaults, vaultSnapshots, defillamaSnapshots } from "@yearn-tvl/db";
-import { eq, and, desc, sql } from "drizzle-orm";
+import { db, defillamaSnapshots } from "@yearn-tvl/db";
+import { eq, desc } from "drizzle-orm";
 import type { DefillamaComparison } from "@yearn-tvl/shared";
 import { calculateTvl } from "./tvl.js";
 
@@ -35,40 +35,16 @@ const getLatestDefillamaData = async () => {
   return Object.fromEntries(entries) as Record<string, Record<string, number>>;
 };
 
-/** Calculate TVL locked in retired vaults */
-const getRetiredTvl = async (): Promise<number> => {
-  const latestIds = db
-    .select({
-      vaultId: vaultSnapshots.vaultId,
-      maxId: sql<number>`MAX(${vaultSnapshots.id})`.as("max_id"),
-    })
-    .from(vaultSnapshots)
-    .groupBy(vaultSnapshots.vaultId)
-    .as("latest");
-
-  const rows = await db
-    .select({ tvlUsd: vaultSnapshots.tvlUsd })
-    .from(vaults)
-    .innerJoin(vaultSnapshots, eq(vaultSnapshots.vaultId, vaults.id))
-    .innerJoin(latestIds, and(
-      eq(vaultSnapshots.vaultId, latestIds.vaultId),
-      eq(vaultSnapshots.id, latestIds.maxId),
-    ))
-    .where(eq(vaults.isRetired, true));
-
-  return rows.reduce((sum, r) => sum + (typeof r.tvlUsd === "number" ? r.tvlUsd : 0), 0);
-};
-
 export const getComparison = async (): Promise<DefillamaComparison> => {
   const ourTvl = await calculateTvl();
   const dlData = await getLatestDefillamaData();
-  const retiredTvl = await getRetiredTvl();
 
   const dlFinance = dlData["yearn-finance"] || {};
   const dlCurating = dlData["yearn-curating"] || {};
   const dlTotal = (dlFinance["total"] || 0) + (dlCurating["total"] || 0);
 
   // Per-chain — collect all unique chains from both sources
+  // tvlByChain already includes retired vault TVL (matching DL behavior)
   const allChains = new Set([
     ...Object.keys(ourTvl.tvlByChain),
     ...Object.keys(dlFinance).filter((c) => c !== "total"),
@@ -85,8 +61,10 @@ export const getComparison = async (): Promise<DefillamaComparison> => {
     .filter((c) => c.ours > 0 || c.defillama > 0)
     .sort((a, b) => Math.abs(b.difference) - Math.abs(a.difference));
 
-  // Per-category
-  const v2v3Ours = ourTvl.v1Tvl + ourTvl.v2Tvl + ourTvl.v3Tvl - ourTvl.overlapAmount;
+  // Per-category — includes retired TVL since totalTvl now counts it
+  const retiredV1V2V3 = (ourTvl.retiredTvlByCategory.v1 || 0) + (ourTvl.retiredTvlByCategory.v2 || 0) + (ourTvl.retiredTvlByCategory.v3 || 0);
+  const retiredCuration = ourTvl.retiredTvlByCategory.curation || 0;
+  const v2v3Ours = ourTvl.v1Tvl + ourTvl.v2Tvl + ourTvl.v3Tvl + retiredV1V2V3 - ourTvl.overlapAmount;
   const v2v3DL = dlFinance["total"] || 0;
   const curationDL = dlCurating["total"] || 0;
 
@@ -101,21 +79,21 @@ export const getComparison = async (): Promise<DefillamaComparison> => {
     {
       category: "Curation",
       defillamaProtocol: "yearn-curating",
-      ours: ourTvl.curationTvl,
+      ours: ourTvl.curationTvl + retiredCuration,
       defillama: curationDL,
-      difference: ourTvl.curationTvl - curationDL,
+      difference: ourTvl.curationTvl + retiredCuration - curationDL,
     },
   ];
 
   // Generate notes explaining discrepancies
   const diffPct = dlTotal > 0 ? Math.abs((ourTvl.totalTvl - dlTotal) / dlTotal) * 100 : 0;
   const v2v3DiffPct = v2v3DL > 0 ? Math.abs((v2v3Ours - v2v3DL) / v2v3DL) * 100 : 0;
-  const curationDiff = ourTvl.curationTvl - curationDL;
+  const curationDiff = ourTvl.curationTvl + retiredCuration - curationDL;
 
   const notes = [
     diffPct < 5 && `Total TVL within ${diffPct.toFixed(1)}% of DefiLlama — good alignment.`,
     v2v3DiffPct < 2 && `V2+V3 TVL matches DefiLlama yearn-finance within ${v2v3DiffPct.toFixed(1)}%.`,
-    retiredTvl > 1e6 && `$${(retiredTvl / 1e6).toFixed(0)}M in retired vaults excluded from our active total (DefiLlama also excludes these).`,
+    ourTvl.retiredTvl > 1e6 && `$${(ourTvl.retiredTvl / 1e6).toFixed(0)}M in retired vaults included in total (DL counts any vault with on-chain TVL).`,
     ourTvl.overlapAmount > 1e6 && `$${(ourTvl.overlapAmount / 1e6).toFixed(0)}M vault→vault overlap deducted to avoid double-counting.`,
     curationDiff < -5e6 && `Curation gap of $${(Math.abs(curationDiff) / 1e6).toFixed(0)}M — some Morpho vaults not discoverable without archive RPC for factory event scanning.`,
   ].filter((n): n is string => Boolean(n));
@@ -125,7 +103,7 @@ export const getComparison = async (): Promise<DefillamaComparison> => {
     defillamaTotal: dlTotal,
     difference: ourTvl.totalTvl - dlTotal,
     differencePercent: dlTotal > 0 ? ((ourTvl.totalTvl - dlTotal) / dlTotal) * 100 : 0,
-    retiredTvl,
+    retiredTvl: ourTvl.retiredTvl,
     overlapDeducted: ourTvl.overlapAmount,
     notes,
     byChain,

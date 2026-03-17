@@ -1,7 +1,9 @@
 export type VaultCategory = "v1" | "v2" | "v3" | "curation";
 
 export interface TvlSummary {
-  totalTvl: number;
+  totalTvl: number;       // active + retired - overlap
+  activeTvl: number;      // active only, no overlap deduction
+  retiredTvl: number;     // retired only
   v1Tvl: number;
   v2Tvl: number;
   v3Tvl: number;
@@ -9,6 +11,7 @@ export interface TvlSummary {
   overlapAmount: number;
   tvlByChain: Record<string, number>;
   tvlByCategory: Record<VaultCategory, number>;
+  retiredTvlByCategory: Record<VaultCategory, number>;
   vaultCount: {
     total: number;
     v1: number;

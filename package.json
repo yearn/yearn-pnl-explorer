@@ -12,6 +12,7 @@
     "fetch:reports": "bun run scripts/fetch-reports.ts",
     "fetch:v1": "bun run scripts/fetch-v1-vaults.ts",
     "fetch:depositors": "bun run scripts/fetch-depositors.ts",
+    "refresh:retired": "bun run scripts/refresh-retired.ts",
     "report": "bun run scripts/generate-report.ts",
     "audit": "bun run ./scripts/audit.ts",
     "db:generate": "bun run --cwd packages/db generate",

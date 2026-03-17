@@ -24,6 +24,7 @@ export const CHAIN_PREFIXES: Record<number, string> = {
   1: "ethereum",
   10: "optimism",
   137: "polygon",
+  250: "fantom",
   8453: "base",
   42161: "arbitrum",
   747474: "katana",

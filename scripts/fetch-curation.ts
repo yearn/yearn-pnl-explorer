@@ -1,17 +1,21 @@
 /**
- * Fetch curation vault data from Morpho Blue API + on-chain reads for Turtle Club.
- * Morpho API provides vault discovery by owner address with USD-priced TVL.
- * Turtle Club vaults (Ethereum) are read directly via viem.
+ * Fetch curation vault data from three sources:
+ * 1. Morpho Blue API — primary vault discovery by owner/creator/curator address
+ * 2. On-chain factory event scanning — catches vaults the API misses (matches DL behavior)
+ * 3. Turtle Club on-chain reads (Ethereum ERC4626 vaults)
+ *
+ * For vaults discovered on-chain without USD pricing, falls back to DefiLlama
+ * current token prices, then stablecoin assumptions.
  */
-import { createPublicClient, http, formatUnits, getAddress, type PublicClient, type Address } from "viem";
-import { mainnet } from "viem/chains";
+import { createPublicClient, http, formatUnits, getAddress, parseAbiItem, type PublicClient, type Address, type Chain } from "viem";
+import { mainnet, base, arbitrum } from "viem/chains";
 import { db, vaults, vaultSnapshots } from "@yearn-tvl/db";
 import { eq, and, desc } from "drizzle-orm";
-import { YEARN_CURATOR_OWNERS, TURTLE_CLUB_VAULTS } from "@yearn-tvl/shared";
+import { YEARN_CURATOR_OWNERS, TURTLE_CLUB_VAULTS, CURATION_CHAINS, CHAIN_PREFIXES } from "@yearn-tvl/shared";
 
 const MORPHO_API = "https://blue-api.morpho.org/graphql";
 
-// --- Morpho API types ---
+// --- Types ---
 
 interface MorphoVault {
   address: string;
@@ -22,7 +26,57 @@ interface MorphoVault {
   state: { totalAssets: string; totalAssetsUsd: number | null };
 }
 
-// --- Morpho API fetch ---
+// --- ABIs ---
+
+const ERC4626_ABI = [
+  { name: "totalAssets", type: "function", inputs: [], outputs: [{ type: "uint256" }], stateMutability: "view" },
+  { name: "asset", type: "function", inputs: [], outputs: [{ type: "address" }], stateMutability: "view" },
+  { name: "name", type: "function", inputs: [], outputs: [{ type: "string" }], stateMutability: "view" },
+] as const;
+
+const ERC20_ABI = [
+  { name: "symbol", type: "function", inputs: [], outputs: [{ type: "string" }], stateMutability: "view" },
+  { name: "decimals", type: "function", inputs: [], outputs: [{ type: "uint8" }], stateMutability: "view" },
+] as const;
+
+const OWNER_ABI = [
+  { name: "owner", type: "function", inputs: [], outputs: [{ type: "address" }], stateMutability: "view" },
+] as const;
+
+// MetaMorpho V1 factory event
+const CREATE_META_MORPHO_V1 = parseAbiItem(
+  "event CreateMetaMorpho(address indexed metaMorpho, address indexed caller, address initialOwner, uint256 initialTimelock, address asset, string name, string symbol, bytes32 salt)"
+);
+
+// MetaMorpho V2 factory event (different event name)
+const CREATE_META_MORPHO_V2 = parseAbiItem(
+  "event CreateMetaMorphoV2(address indexed metaMorpho, address indexed caller, address initialOwner, uint256 initialTimelock, address asset, string name, string symbol, bytes32 salt)"
+);
+
+// Custom chain definitions for chains not in viem/chains
+const katana: Chain = {
+  id: 747474,
+  name: "Katana",
+  nativeCurrency: { name: "ETH", symbol: "ETH", decimals: 18 },
+  rpcUrls: { default: { http: ["https://rpc.katana.network"] } },
+};
+
+const hyperliquid: Chain = {
+  id: 999,
+  name: "Hyperliquid",
+  nativeCurrency: { name: "ETH", symbol: "ETH", decimals: 18 },
+  rpcUrls: { default: { http: ["https://rpc.hyperliquid.xyz"] } },
+};
+
+const CHAIN_MAP: Record<number, Chain> = {
+  1: mainnet,
+  8453: base,
+  42161: arbitrum,
+  747474: katana,
+  999: hyperliquid,
+};
+
+// --- 1. Morpho API fetch ---
 
 const fetchMorphoVaults = async (): Promise<MorphoVault[]> => {
   const owners = JSON.stringify([...YEARN_CURATOR_OWNERS]);
@@ -35,7 +89,7 @@ const fetchMorphoVaults = async (): Promise<MorphoVault[]> => {
     state { totalAssets totalAssetsUsd }
   `;
 
-  // Query by both owner and creator — DefiLlama uses initialOwner from factory events
+  // Query by owner, creator, and curator — DL uses initialOwner from factory events
   // which maps to creatorAddress, while current owner may have changed
   const query = `{
     byOwner: vaults(where: { ownerAddress_in: ${owners} }, first: 200) {
@@ -69,18 +123,125 @@ const fetchMorphoVaults = async (): Promise<MorphoVault[]> => {
   return [...new Map(allItems.map((v) => [`${v.chain.id}:${v.address.toLowerCase()}`, v])).values()];
 };
 
-// --- Turtle Club on-chain reads (Ethereum only) ---
+// --- 2. On-chain factory event scanning ---
 
-const ERC4626_ABI = [
-  { name: "totalAssets", type: "function", inputs: [], outputs: [{ type: "uint256" }], stateMutability: "view" },
-  { name: "asset", type: "function", inputs: [], outputs: [{ type: "address" }], stateMutability: "view" },
-  { name: "name", type: "function", inputs: [], outputs: [{ type: "string" }], stateMutability: "view" },
-] as const;
+/** Read vault metadata from on-chain contracts */
+const readVaultOnChain = async (
+  client: PublicClient,
+  vaultAddress: Address,
+  chainId: number,
+  chainName: string,
+): Promise<MorphoVault | null> => {
+  try {
+    const [totalAssets, assetAddress, name] = await Promise.all([
+      client.readContract({ address: vaultAddress, abi: ERC4626_ABI, functionName: "totalAssets" }),
+      client.readContract({ address: vaultAddress, abi: ERC4626_ABI, functionName: "asset" }),
+      client.readContract({ address: vaultAddress, abi: ERC4626_ABI, functionName: "name" }),
+    ]);
 
-const ERC20_ABI = [
-  { name: "symbol", type: "function", inputs: [], outputs: [{ type: "string" }], stateMutability: "view" },
-  { name: "decimals", type: "function", inputs: [], outputs: [{ type: "uint8" }], stateMutability: "view" },
-] as const;
+    const [symbol, decimals] = await Promise.all([
+      client.readContract({ address: assetAddress as Address, abi: ERC20_ABI, functionName: "symbol" }),
+      client.readContract({ address: assetAddress as Address, abi: ERC20_ABI, functionName: "decimals" }),
+    ]);
+
+    return {
+      address: vaultAddress,
+      chain: { id: chainId, network: chainName.toLowerCase() },
+      name: name as string,
+      symbol: "",
+      asset: { address: assetAddress as string, symbol: symbol as string, decimals: decimals as number },
+      state: { totalAssets: totalAssets.toString(), totalAssetsUsd: null },
+    };
+  } catch (err) {
+    console.warn(`    Failed to read vault ${vaultAddress}: ${(err as Error).message.slice(0, 80)}`);
+    return null;
+  }
+};
+
+/**
+ * Scan Morpho factory contracts for CreateMetaMorpho events, filter by owner.
+ * This matches DL's curators helper behavior: discover vaults from factory events
+ * rather than relying solely on the Morpho API.
+ */
+const fetchMorphoVaultsOnChain = async (alreadyFound: Set<string>): Promise<MorphoVault[]> => {
+  const results: MorphoVault[] = [];
+  const ownerSet = new Set(YEARN_CURATOR_OWNERS.map((a) => a.toLowerCase()));
+
+  for (const chainConfig of CURATION_CHAINS) {
+    const rpcUrl = process.env[`RPC_URI_FOR_${chainConfig.chainId}`] || process.env.ETH_RPC_URL;
+    if (!rpcUrl) {
+      console.warn(`    No RPC for chain ${chainConfig.chainId}, skipping factory scan`);
+      continue;
+    }
+
+    const viemChain = CHAIN_MAP[chainConfig.chainId];
+    if (!viemChain) continue;
+
+    const client = createPublicClient({ chain: viemChain, transport: http(rpcUrl) });
+
+    for (const factory of chainConfig.factories) {
+      try {
+        // Try V1 event first, then V2 if no results
+        const event = factory.version === "v1" ? CREATE_META_MORPHO_V1 : CREATE_META_MORPHO_V2;
+
+        let logs = await client.getLogs({
+          address: factory.address,
+          event,
+          fromBlock: factory.fromBlock,
+          toBlock: "latest",
+        });
+
+        // If V2 event returned nothing, try V1 event name (some V2 factories reuse it)
+        if (logs.length === 0 && factory.version === "v2") {
+          logs = await client.getLogs({
+            address: factory.address,
+            event: CREATE_META_MORPHO_V1,
+            fromBlock: factory.fromBlock,
+            toBlock: "latest",
+          });
+        }
+
+        let newVaults = 0;
+        for (const log of logs) {
+          const vaultAddress = log.args.metaMorpho;
+          if (!vaultAddress) continue;
+
+          const key = `${chainConfig.chainId}:${vaultAddress.toLowerCase()}`;
+          if (alreadyFound.has(key)) continue;
+
+          // Check owner
+          try {
+            const owner = await client.readContract({
+              address: vaultAddress,
+              abi: OWNER_ABI,
+              functionName: "owner",
+            });
+            if (!ownerSet.has(owner.toLowerCase())) continue;
+          } catch {
+            continue; // Can't read owner, skip
+          }
+
+          const vault = await readVaultOnChain(client, vaultAddress, chainConfig.chainId, chainConfig.name);
+          if (vault) {
+            results.push(vault);
+            alreadyFound.add(key);
+            newVaults++;
+          }
+        }
+
+        if (newVaults > 0) {
+          console.log(`    ${chainConfig.name} factory ${factory.version} (${factory.address.slice(0, 10)}...): ${newVaults} new vaults`);
+        }
+      } catch (err) {
+        console.warn(`    Failed to scan factory ${factory.address} on ${chainConfig.name}: ${(err as Error).message.slice(0, 100)}`);
+      }
+    }
+  }
+
+  return results;
+};
+
+// --- 3. Turtle Club on-chain reads (Ethereum only) ---
 
 const fetchTurtleClubVaults = async (): Promise<MorphoVault[]> => {
   const rpcUrl = process.env.RPC_URI_FOR_1 || process.env.ETH_RPC_URL;
@@ -89,34 +250,48 @@ const fetchTurtleClubVaults = async (): Promise<MorphoVault[]> => {
   const results: MorphoVault[] = [];
 
   for (const address of TURTLE_CLUB_VAULTS) {
-    try {
-      const [totalAssets, assetAddress, name] = await Promise.all([
-        client.readContract({ address, abi: ERC4626_ABI, functionName: "totalAssets" }),
-        client.readContract({ address, abi: ERC4626_ABI, functionName: "asset" }),
-        client.readContract({ address, abi: ERC4626_ABI, functionName: "name" }),
-      ]);
-
-      const [symbol, decimals] = await Promise.all([
-        client.readContract({ address: assetAddress, abi: ERC20_ABI, functionName: "symbol" }),
-        client.readContract({ address: assetAddress, abi: ERC20_ABI, functionName: "decimals" }),
-      ]);
-
-      const formatted = Number(formatUnits(totalAssets, decimals));
-
-      results.push({
-        address,
-        chain: { id: 1, network: "ethereum" },
-        name: name as string,
-        symbol: "",
-        asset: { address: assetAddress, symbol, decimals },
-        state: { totalAssets: totalAssets.toString(), totalAssetsUsd: null },
-      });
-    } catch (err) {
-      console.warn(`  Failed to read Turtle Club vault ${address}:`, (err as Error).message);
-    }
+    const vault = await readVaultOnChain(client, address, 1, "ethereum");
+    if (vault) results.push(vault);
   }
 
   return results;
+};
+
+// --- Price fallback: DefiLlama current prices for on-chain discovered vaults ---
+
+const priceVaultsViaDeFiLlama = async (vaultList: MorphoVault[]): Promise<void> => {
+  const needsPricing = vaultList.filter((v) => v.state.totalAssetsUsd === null);
+  if (needsPricing.length === 0) return;
+
+  const tokens = needsPricing
+    .map((v) => {
+      const prefix = CHAIN_PREFIXES[v.chain.id];
+      if (!prefix || !v.asset.address) return null;
+      return { key: `${prefix}:${v.asset.address}`, vault: v };
+    })
+    .filter(Boolean) as { key: string; vault: MorphoVault }[];
+
+  if (tokens.length === 0) return;
+
+  const coinKeys = [...new Set(tokens.map((t) => t.key))].join(",");
+
+  try {
+    const res = await fetch(`https://coins.llama.fi/prices/current/${coinKeys}`);
+    if (!res.ok) return;
+    const data = (await res.json()) as { coins: Record<string, { price: number }> };
+
+    for (const { key, vault } of tokens) {
+      const priceInfo = data.coins[key];
+      if (!priceInfo || priceInfo.price <= 0) continue;
+
+      const totalAssets = BigInt(vault.state.totalAssets || "0");
+      if (totalAssets === 0n) continue;
+
+      vault.state.totalAssetsUsd = Number(totalAssets) / 10 ** vault.asset.decimals * priceInfo.price;
+    }
+  } catch {
+    console.warn("  Failed to fetch fallback prices from DefiLlama");
+  }
 };
 
 // --- Persist ---
@@ -197,14 +372,25 @@ export const fetchAndStoreCurationData = async () => {
   const morphoVaults = await fetchMorphoVaults();
   console.log(`  [Morpho API] Found ${morphoVaults.length} vaults`);
 
-  // 2. Turtle Club — on-chain reads for Ethereum ERC4626 vaults not in Morpho
+  // Track already-found vaults for dedup
+  const foundKeys = new Set(morphoVaults.map((v) => `${v.chain.id}:${v.address.toLowerCase()}`));
+
+  // 2. Factory event scanning — catches vaults the Morpho API misses
+  console.log("\n  [Factory scan] Scanning on-chain factory events...");
+  const factoryVaults = await fetchMorphoVaultsOnChain(foundKeys);
+  console.log(`  [Factory scan] Found ${factoryVaults.length} additional vaults`);
+
+  // 3. Turtle Club — on-chain reads for Ethereum ERC4626 vaults not in Morpho
   console.log("\n  [Turtle Club] Reading on-chain (Ethereum)...");
   const turtleVaults = await fetchTurtleClubVaults();
   console.log(`  [Turtle Club] Found ${turtleVaults.length} vaults`);
 
   // Merge, deduplicate by address+chainId
-  const allItems = [...morphoVaults, ...turtleVaults];
+  const allItems = [...morphoVaults, ...factoryVaults, ...turtleVaults];
   const allVaults = [...new Map(allItems.map((v) => [`${v.chain.id}:${v.address.toLowerCase()}`, v])).values()];
+
+  // Price on-chain discovered vaults via DefiLlama
+  await priceVaultsViaDeFiLlama(allVaults);
 
   // Persist
   let totalTvl = 0;

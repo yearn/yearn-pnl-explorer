@@ -354,18 +354,16 @@ export function VaultDrawer({ vault, onClose }: VaultDrawerProps) {
             {vault.isRetired && (
               <span style={styles.retiredBadge}>Retired</span>
             )}
-            {explorerUrl && (
-              <a
-                href={explorerUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                style={styles.explorerLink}
-                onMouseEnter={(e) => { e.currentTarget.style.color = "var(--accent)"; }}
-                onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-3)"; }}
-              >
-                View on Explorer &#8599;
-              </a>
-            )}
+            <a
+              href={`https://yearn.fi/vaults/${vault.chainId}/${vault.address}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={styles.explorerLink}
+              onMouseEnter={(e) => { e.currentTarget.style.color = "var(--accent)"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-3)"; }}
+            >
+              View on Yearn &#8599;
+            </a>
           </div>
         </div>
 

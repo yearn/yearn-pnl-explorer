@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, lazy, Suspense, createContext } from "react";
-import { SkeletonCards, SkeletonChart, CHAIN_NAMES } from "./hooks";
+import { SkeletonCards, SkeletonChart } from "./hooks";
 import { CommandPalette } from "./components/CommandPalette";
 import "./styles.css";
 
@@ -10,8 +10,15 @@ const ProfitabilityPanel = lazy(() => import("./panels/ProfitabilityPanel").then
 const AnalysisPanel = lazy(() => import("./panels/AnalysisPanel").then((m) => ({ default: m.AnalysisPanel })));
 const VaultsPanel = lazy(() => import("./panels/VaultsPanel").then((m) => ({ default: m.VaultsPanel })));
 
-const TABS = ["Overview", "Comparison", "Fees", "Profitability", "Analysis", "Vaults"] as const;
-type Tab = (typeof TABS)[number];
+const TABS = [
+  { key: "Overview", icon: "\u25A3", label: "Overview" },
+  { key: "Comparison", icon: "\u21C4", label: "Comparison" },
+  { key: "Fees", icon: "\u2234", label: "Fees" },
+  { key: "Profitability", icon: "\u2237", label: "Profitability" },
+  { key: "Analysis", icon: "\u2609", label: "Analysis" },
+  { key: "Vaults", icon: "\u2395", label: "Vaults" },
+] as const;
+type Tab = (typeof TABS)[number]["key"];
 
 export type Density = "comfortable" | "compact";
 
@@ -48,9 +55,9 @@ export const App = () => {
   const [tab, setTab] = useState<Tab>("Overview");
   const [chainFilter, setChainFilter] = useState("all");
   const [density, setDensity] = useState<Density>("comfortable");
+  const [collapsed, setCollapsed] = useState(false);
   const [cmdkOpen, setCmdkOpen] = useState(false);
 
-  // Cmd+K / Ctrl+K shortcut
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "k") {
@@ -63,80 +70,96 @@ export const App = () => {
   }, []);
 
   const handleNavigate = useCallback((tabName: string) => {
-    const match = TABS.find((t) => t === tabName);
-    if (match) setTab(match);
+    const match = TABS.find((t) => t.key === tabName);
+    if (match) setTab(match.key);
   }, []);
 
   return (
     <DashboardContext.Provider value={{ chainFilter, density }}>
-      <div className="app">
-        <header>
-          <h1>Yearn Metrics <span>Analytics</span></h1>
-          <div className="header-right">
-            Protocol TVL Dashboard
+      <div className={`app${collapsed ? " sidebar-collapsed" : ""}`}>
+        {/* ── Sidebar ── */}
+        <aside className={`sidebar${collapsed ? " collapsed" : ""}`}>
+          <div className="sidebar-header">
+            <div className="sidebar-logo">Y</div>
+            <span className="sidebar-title">Yearn Metrics</span>
           </div>
-        </header>
 
-        <nav>
-          {TABS.map((t) => (
-            <button
-              key={t}
-              className={tab === t ? "active" : ""}
-              onClick={() => setTab(t)}
-            >
-              {t}
-            </button>
-          ))}
-        </nav>
-
-        {/* Toolbar: global chain filter, density toggle, Cmd+K */}
-        <div className="toolbar">
-          <select
-            className="filter-select"
-            value={chainFilter}
-            onChange={(e) => setChainFilter(e.target.value)}
-          >
-            {CHAINS.map((c) => (
-              <option key={c.id} value={c.id}>{c.label}</option>
+          <div className="sidebar-nav">
+            {TABS.map((t) => (
+              <button
+                key={t.key}
+                className={tab === t.key ? "active" : ""}
+                onClick={() => setTab(t.key)}
+                title={collapsed ? t.label : undefined}
+              >
+                <span className="nav-icon">{t.icon}</span>
+                <span className="nav-label">{t.label}</span>
+              </button>
             ))}
-          </select>
+          </div>
 
-          <div className="toolbar-right">
-            <div className="density-toggle">
-              <button
-                className={density === "comfortable" ? "active" : ""}
-                onClick={() => setDensity("comfortable")}
-                title="Comfortable"
-              >
-                &#9776;
-              </button>
-              <button
-                className={density === "compact" ? "active" : ""}
-                onClick={() => setDensity("compact")}
-                title="Compact"
-              >
-                &#9783;
-              </button>
-            </div>
-
-            <button className="kbd-hint" onClick={() => setCmdkOpen(true)}>
-              Search <kbd>{navigator.platform?.includes("Mac") ? "\u2318" : "Ctrl"}</kbd><kbd>K</kbd>
+          <div className="sidebar-footer">
+            <button
+              className="sidebar-toggle"
+              onClick={() => setCollapsed((c) => !c)}
+              title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            >
+              {collapsed ? "\u276F" : "\u276E"}
             </button>
           </div>
-        </div>
+        </aside>
 
-        <main>
-          <Suspense fallback={<PanelFallback />}>
-            <div className="panel-enter" key={tab}>
-              {tab === "Overview" && <TvlOverview />}
-              {tab === "Comparison" && <ComparisonPanel />}
-              {tab === "Fees" && <FeesPanel />}
-              {tab === "Profitability" && <ProfitabilityPanel />}
-              {tab === "Analysis" && <AnalysisPanel />}
-              {tab === "Vaults" && <VaultsPanel />}
+        {/* ── Main Content ── */}
+        <div className="main-area">
+          <div className="top-bar">
+            <span className="top-bar-title">{TABS.find((t) => t.key === tab)?.label}</span>
+            <div className="toolbar-right">
+              <select
+                className="filter-select"
+                value={chainFilter}
+                onChange={(e) => setChainFilter(e.target.value)}
+              >
+                {CHAINS.map((c) => (
+                  <option key={c.id} value={c.id}>{c.label}</option>
+                ))}
+              </select>
+
+              <div className="density-toggle">
+                <button
+                  className={density === "comfortable" ? "active" : ""}
+                  onClick={() => setDensity("comfortable")}
+                  title="Comfortable"
+                >
+                  &#9776;
+                </button>
+                <button
+                  className={density === "compact" ? "active" : ""}
+                  onClick={() => setDensity("compact")}
+                  title="Compact"
+                >
+                  &#9783;
+                </button>
+              </div>
+
+              <button className="kbd-hint" onClick={() => setCmdkOpen(true)}>
+                Search <kbd>{navigator.platform?.includes("Mac") ? "\u2318" : "Ctrl"}</kbd><kbd>K</kbd>
+              </button>
             </div>
-          </Suspense>
-        </main>
+          </div>
+
+          <main>
+            <Suspense fallback={<PanelFallback />}>
+              <div className="panel-enter" key={tab}>
+                {tab === "Overview" && <TvlOverview />}
+                {tab === "Comparison" && <ComparisonPanel />}
+                {tab === "Fees" && <FeesPanel />}
+                {tab === "Profitability" && <ProfitabilityPanel />}
+                {tab === "Analysis" && <AnalysisPanel />}
+                {tab === "Vaults" && <VaultsPanel />}
+              </div>
+            </Suspense>
+          </main>
+        </div>
 
         <CommandPalette
           isOpen={cmdkOpen}

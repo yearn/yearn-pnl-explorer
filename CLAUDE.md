@@ -17,10 +17,11 @@ bun run fetch:curation   # Morpho Blue API + Turtle Club on-chain reads
 bun run fetch:v1         # V1 legacy vaults on-chain (Ethereum, getPricePerFullShare)
 bun run fetch:reports    # Vault harvest reports (gainUsd per harvest)
 bun run fetch:depositors # Depositor data from Kong transfers (Ethereum only)
+bun run fetch:prices     # Weekly historical asset prices from DefiLlama (~10 min)
 
 # Post-fetch enrichment
 bun run scripts/fetch-v2-fees.ts    # Read actual V2 fee rates on-chain (most are 10%/0%)
-bun run scripts/reprice-reports.ts  # Reprice reports using DL historical prices
+bun run scripts/reprice-reports.ts  # Reprice reports using cached prices + snapshot fallback
 
 # Overlap detection — find strategies that deposit into other Yearn vaults
 bun run scripts/detect-overlaps.ts  # On-chain scan, outputs candidates for STRATEGY_OVERLAP_REGISTRY
@@ -65,7 +66,8 @@ Then run additional fetchers that aren't part of seed:
 ```bash
 bun run fetch:reports                   # Harvest reports for fee analysis (~5 min)
 bun run scripts/fetch-v2-fees.ts        # Correct V2 fee rates from on-chain
-bun run scripts/reprice-reports.ts      # Reprice reports with DL historical prices (~10 min)
+bun run fetch:prices                    # Weekly historical asset prices (~10 min, run before repricing)
+bun run scripts/reprice-reports.ts      # Reprice reports using cached prices + snapshot fallback
 bun run fetch:depositors                # Depositor data (Ethereum only)
 ```
 
@@ -145,6 +147,7 @@ Seed locally, then upload the DB file to Fly:
 bun run seed
 bun run fetch:reports                       # optional extras
 bun run scripts/fetch-v2-fees.ts
+bun run fetch:prices                        # weekly historical asset prices
 bun run scripts/reprice-reports.ts
 
 # 2. Upload to Fly
@@ -204,7 +207,7 @@ packages/shared  →  packages/db  →  packages/api  →  packages/dashboard
 Types (`VaultCategory`, `TvlSummary`, `KongVault`, etc.), constants (`CHAIN_IDS`, `CHAIN_NAMES`, `KONG_API_URL`, `V1_VAULTS`, `IGNORED_VAULTS`), curation vault registry (`YEARN_CURATOR_OWNERS`, `TURTLE_CLUB_VAULTS`, factory configs per chain), strategy overlap registry (`STRATEGY_OVERLAP_REGISTRY`), and pluggable pricing interface (`HistoricalPriceProvider`, `DefiLlamaPriceProvider`).
 
 ### packages/db
-SQLite via Drizzle ORM + `bun:sqlite`. DB file lives at `packages/db/yearn-tvl.db` (resolved relative to the package, not CWD). 9 tables: `vaults`, `vaultSnapshots`, `strategies`, `strategyDebts`, `feeConfigs`, `strategyReports`, `defillamaSnapshots`, `depositors`, `tvlOverlap`. Import as `import { db, vaults, ... } from "@yearn-tvl/db"`.
+SQLite via Drizzle ORM + `bun:sqlite`. DB file lives at `packages/db/yearn-tvl.db` (resolved relative to the package, not CWD). 10 tables: `vaults`, `vaultSnapshots`, `strategies`, `strategyDebts`, `feeConfigs`, `strategyReports`, `defillamaSnapshots`, `depositors`, `tvlOverlap`, `assetPrices`. Import as `import { db, vaults, ... } from "@yearn-tvl/db"`.
 
 ### packages/api
 Hono REST API on port 3456. Four route groups, each backed by a service:
@@ -226,7 +229,8 @@ Each script fetches from an external source and upserts into the DB:
 - `fetch-reports.ts` — Kong `vaultReports(chainId, address)` per vault → strategyReports (includes raw `gain` for repricing)
 - `fetch-depositors.ts` — Kong `transfers(chainId, address)` → depositors (Ethereum only, 100/vault limit)
 - `fetch-v2-fees.ts` — Reads actual `managementFee()` and `performanceFee()` from V2 vault contracts on-chain
-- `reprice-reports.ts` — Reprices reports with `HistoricalPriceProvider` (default: DefiLlama historical prices, snapshot fallback)
+- `fetch-historical-prices.ts` — Weekly historical asset prices from DefiLlama → assetPrices (used by repricing and fee calculations)
+- `reprice-reports.ts` — Reprices reports using: (1) cached weekly prices from assetPrices, (2) vault snapshot fallback for LP tokens
 - `detect-overlaps.ts` — On-chain scan for strategies holding shares of other Yearn vaults; outputs candidates for `STRATEGY_OVERLAP_REGISTRY` in `packages/shared/src/strategy-overlaps.ts`
 - `audit.ts` — Interactive TUI: Chain → Category (Allocation/Strategies/Curators) → Vault → Strategy
 
@@ -242,7 +246,7 @@ Each script fetches from an external source and upserts into the DB:
 
 **DefiLlama mapping**: V1 + V2 + V3 → `yearn-finance`, Curation → `yearn-curating`. Retired vaults excluded from both.
 
-**Pricing**: `HistoricalPriceProvider` interface in `packages/shared/src/pricing.ts`. Default: `DefiLlamaPriceProvider` using `coins.llama.fi/prices/historical`. Swap the provider in `reprice-reports.ts` to use a custom pricing backend.
+**Pricing**: Weekly historical asset prices are cached in the `assetPrices` table via `fetch-historical-prices.ts` (sources from `coins.llama.fi/prices/historical`). `reprice-reports.ts` reads from this cache. `CHAIN_PREFIXES` in `packages/shared/src/pricing.ts` maps chainId → DL chain name.
 
 **Chains supported**: Ethereum (1), Optimism (10), Polygon (137), Fantom (250), Base (8453), Arbitrum (42161), Gnosis (100), Katana (747474), Hyperliquid (999).
 
@@ -254,7 +258,7 @@ Each script fetches from an external source and upserts into the DB:
 |--------|-----------------|---------|
 | Kong GraphQL API (`kong.yearn.fi/api/gql`) | V2/V3 vaults, TVL (`tvl.close`), strategies, debts, fee configs, harvest reports | `fetch-kong.ts`, `fetch-reports.ts` |
 | DefiLlama Protocol API (`api.llama.fi/protocol/{slug}`) | Reference TVL for `yearn-finance` and `yearn-curating` protocols, per-chain breakdown | `fetch-defillama.ts` |
-| DefiLlama Pricing API (`coins.llama.fi/prices`) | Current token prices (fallback for Kong zero-TVL vaults), historical prices for report repricing | `fetch-kong.ts`, `fetch-v1-vaults.ts`, `reprice-reports.ts` |
+| DefiLlama Pricing API (`coins.llama.fi/prices`) | Current token prices (fallback for Kong zero-TVL vaults), weekly historical prices for asset cache | `fetch-kong.ts`, `fetch-v1-vaults.ts`, `fetch-historical-prices.ts` |
 | Morpho Blue API (`blue-api.morpho.org/graphql`) | Curation vault discovery by owner/creator/curator address, totalAssetsUsd | `fetch-curation.ts` |
 | On-chain RPC reads | V1 vault state (`getPricePerFullShare`, `totalSupply`), V2 fee rates, Turtle Club vault balances | `fetch-v1-vaults.ts`, `fetch-v2-fees.ts`, `fetch-curation.ts` |
 | Velodrome/Aerodrome Sugar Oracle | LP token pricing on Optimism/Base when Kong returns zero | `fetch-kong.ts` (via `velo-oracle.ts`) |
@@ -277,7 +281,7 @@ Each script fetches from an external source and upserts into the DB:
 
 **Performance fees**: For each harvest report, `gainUsd × (performanceFee / 10000)`. Only positive gains count; losses are ignored.
 
-**Management fees**: `tvlUsd × (managementFee / 10000) × durationYears`, where duration = time between first and last harvest report. Uses latest TVL snapshot (not time-weighted).
+**Management fees**: Time-weighted using weekly asset prices from `assetPrices` table. For each week between first and last harvest, computes `totalAssets × assetPrice × (mgmtFee / 10000) × weekDuration`. Falls back to `latestTvlUsd × rate × duration` if no cached prices available.
 
 **Fee rates**: Stored in basis points (1000 = 10%). V2 defaults to 1000 perf / 0 mgmt if Kong has no data. Corrected by `fetch-v2-fees.ts` which reads actual on-chain rates.
 
@@ -286,8 +290,8 @@ Each script fetches from an external source and upserts into the DB:
 Harvest reports record raw token `gain` amounts. USD conversion (`gainUsd`) follows a priority chain:
 
 1. Kong's `gainUsd` — used if non-zero
-2. DefiLlama historical price at harvest timestamp (`reprice-reports.ts`) — batch process using `coins.llama.fi/prices/historical/{timestamp}/{chain}:{token}`
-3. Vault snapshot price (`tvlUsd / totalAssets`) — fallback if no external price available
+2. Cached weekly asset price from `assetPrices` table (nearest within ±1 week of harvest timestamp) — populated by `fetch-historical-prices.ts`
+3. Vault snapshot price (`tvlUsd / totalAssets`) — fallback for LP tokens not on DefiLlama
 4. Cap at $500K per report — protects against corrupted Kong data (e.g. OHM-FRAXBP returning $4T)
 
 ### How DL comparison works
@@ -310,7 +314,7 @@ When Kong returns `tvl.close = 0` but `totalAssets > 0`:
 
 - **Point-in-time only**: All TVL numbers are latest snapshots, not historical time-series.
 - **Overlap deduction is conservative**: Only single-hop deduction (A→B), no cascade (A→B→C). Registry requires manual curation via `detect-overlaps.ts`.
-- **Management fee is approximate**: Uses single latest TVL snapshot, not time-weighted average over the reporting period.
+- **Management fee uses latest totalAssets**: Time-weighted across weekly price changes, but `totalAssets` is from the latest snapshot (doesn't capture historical deposit/withdrawal changes).
 - **Fee rates are latest-only**: Historical fee rate changes are not tracked; if a vault changed from 20% to 10% perf fee, all reports use the current 10%.
 - **LP token repricing is imprecise**: Snapshot-based fallback uses current reserves, not historical composition.
 - **Curation discovery is incomplete**: Morpho API queries by known owner/creator/curator addresses. Vaults from unknown curators or new factories won't appear until registry is updated.

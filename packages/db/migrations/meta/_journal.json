@@ -8,6 +8,20 @@
       "when": 1773220699696,
       "tag": "0000_wild_midnight",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1773320000000,
+      "tag": "0001_profitability",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1773400000000,
+      "tag": "0002_asset_prices",
+      "breakpoints": true
     }
   ]
 }

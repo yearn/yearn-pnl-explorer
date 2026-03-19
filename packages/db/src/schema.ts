@@ -81,6 +81,15 @@ export const defillamaSnapshots = sqliteTable("defillama_snapshots", {
   timestamp: text("timestamp").notNull(),
 });
 
+export const assetPrices = sqliteTable("asset_prices", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  chainId: integer("chain_id").notNull(),
+  address: text("address").notNull(),
+  symbol: text("symbol"),
+  priceUsd: real("price_usd").notNull(),
+  timestamp: integer("timestamp").notNull(), // Unix timestamp (Monday noon UTC)
+});
+
 export const depositors = sqliteTable("depositors", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   address: text("address").notNull(),

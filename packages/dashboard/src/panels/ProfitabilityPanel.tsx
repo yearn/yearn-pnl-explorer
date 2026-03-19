@@ -157,10 +157,50 @@ export function ProfitabilityPanel() {
     }
   }), [filtered, sortKey, sortDir]);
 
-  const scatterData = useMemo(
-    () => (data ? data.vaults.filter((v) => v.feeYield > 0 && v.tvlUsd > 0).map((v) => ({ ...v, logTvl: Math.log10(v.tvlUsd) })) : []),
-    [data],
-  );
+  const scatterData = useMemo(() => {
+    if (!data) return [];
+    const eligible = data.vaults.filter((v) => v.feeYield > 0 && v.tvlUsd > 0);
+    if (eligible.length < 4) return eligible.map((v) => ({ ...v, logTvl: Math.log10(v.tvlUsd) }));
+    const yields = eligible.map((v) => v.feeYield).sort((a, b) => a - b);
+    const q1 = yields[Math.floor(yields.length * 0.25)];
+    const q3 = yields[Math.floor(yields.length * 0.75)];
+    const iqr = q3 - q1;
+    const upper = q3 + 1.5 * iqr;
+    return eligible
+      .filter((v) => v.feeYield <= upper)
+      .map((v) => ({ ...v, logTvl: Math.log10(v.tvlUsd) }));
+  }, [data]);
+
+  const trendLine = useMemo(() => {
+    if (scatterData.length < 5) return null;
+    const n = scatterData.length;
+    let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0, sumY2 = 0;
+    for (const p of scatterData) {
+      sumX += p.logTvl;
+      sumY += p.feeYield;
+      sumXY += p.logTvl * p.feeYield;
+      sumX2 += p.logTvl * p.logTvl;
+      sumY2 += p.feeYield * p.feeYield;
+    }
+    const denom = n * sumX2 - sumX * sumX;
+    if (denom === 0) return null;
+    const slope = (n * sumXY - sumX * sumY) / denom;
+    const intercept = (sumY - slope * sumX) / n;
+    // r²
+    const denomR = Math.sqrt((n * sumX2 - sumX * sumX) * (n * sumY2 - sumY * sumY));
+    const r2 = denomR === 0 ? 0 : Math.pow((n * sumXY - sumX * sumY) / denomR, 2);
+    if (r2 < 0.01) return null;
+    const xs = scatterData.map((p) => p.logTvl);
+    const minX = Math.min(...xs);
+    const maxX = Math.max(...xs);
+    return {
+      points: [
+        { logTvl: minX, feeYield: slope * minX + intercept },
+        { logTvl: maxX, feeYield: slope * maxX + intercept },
+      ],
+      r2,
+    };
+  }, [scatterData]);
 
   const chains = useMemo(() => (data ? [...new Set(data.vaults.map((v) => v.chainId))] : []), [data]);
 
@@ -206,7 +246,14 @@ export function ProfitabilityPanel() {
 
       {/* Scatter chart */}
       <div className="card">
-        <h2>TVL vs Fee Yield</h2>
+        <h2 style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+          TVL vs Fee Yield
+          {trendLine && (
+            <span style={{ fontSize: "0.75rem", color: "#f0b90b", fontWeight: 400 }}>
+              R² = {trendLine.r2.toFixed(3)}
+            </span>
+          )}
+        </h2>
         <div className="quadrant-legend">
           {Object.entries(QUADRANT_LABELS).map(([key, { label, color, desc }]) => {
             const count = data.quadrants[key as Quadrant]?.length || 0;
@@ -253,6 +300,15 @@ export function ProfitabilityPanel() {
                   />
                 ))}
               </Scatter>
+              {trendLine && (
+                <Scatter
+                  data={trendLine.points}
+                  line={{ stroke: "#f0b90b", strokeWidth: 2, strokeDasharray: "6 3" }}
+                  shape={() => <></>}
+                  isAnimationActive={false}
+                  legendType="none"
+                />
+              )}
             </ScatterChart>
           </ResponsiveContainer>
         </div>

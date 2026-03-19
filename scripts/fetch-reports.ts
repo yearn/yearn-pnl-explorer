@@ -52,7 +52,10 @@ const fetchVaultReports = async (chainId: number, address: string): Promise<Kong
   });
 
   if (!res.ok) throw new Error(`Kong API error: ${res.status}`);
-  const json = (await res.json()) as { data: { vaultReports: KongVaultReport[] } };
+  const json = (await res.json()) as { data?: { vaultReports: KongVaultReport[] }; errors?: Array<{ message: string }> };
+  if (json.errors?.length) {
+    console.warn(`  Kong GraphQL errors for ${address}: ${json.errors[0].message}`);
+  }
   return json.data?.vaultReports || [];
 };
 

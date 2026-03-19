@@ -61,7 +61,8 @@ export const fetchCurrentPrices = async (
         .filter(([, info]) => info.price > 0)
         .map(([key, info]) => [key.split(":")[1]?.toLowerCase() ?? "", info.price]),
     );
-  } catch {
+  } catch (err) {
+    console.warn("fetchCurrentPrices failed:", (err as Error).message);
     return new Map();
   }
 };
@@ -111,7 +112,8 @@ export class DefiLlamaPriceProvider implements HistoricalPriceProvider {
         }
       }
       return prices;
-    } catch {
+    } catch (err) {
+      console.warn("DefiLlamaPriceProvider.getPrices failed:", (err as Error).message);
       return new Map();
     }
   }

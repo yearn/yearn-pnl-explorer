@@ -20,8 +20,11 @@ export const reduceBy = <T, V>(
   keyFn: (t: T) => string,
   init: () => V,
   accumulate: (acc: V, t: T) => V,
-): Record<string, V> =>
-  items.reduce((acc, t) => {
+): Record<string, V> => {
+  const result: Record<string, V> = {};
+  for (const t of items) {
     const k = keyFn(t);
-    return { ...acc, [k]: accumulate(acc[k] ?? init(), t) };
-  }, {} as Record<string, V>);
+    result[k] = accumulate(result[k] ?? init(), t);
+  }
+  return result;
+};

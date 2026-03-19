@@ -7,7 +7,7 @@ import { db, vaults, feeConfigs, strategyReports } from "@yearn-tvl/db";
 import { eq, and, sql, gte } from "drizzle-orm";
 import type { VaultCategory } from "@yearn-tvl/shared";
 import { CHAIN_NAMES, toMap, reduceBy } from "@yearn-tvl/shared";
-import { getLatestSnapshots } from "./queries.js";
+import { getLatestSnapshots, latestFeeConfigIds, isAnalysisEligible } from "./queries.js";
 
 type PricingConfidence = "high" | "medium" | "low";
 type Trend = "improving" | "declining" | "stable" | "insufficient_data";
@@ -145,14 +145,19 @@ export const getProfitability = async (): Promise<ProfitabilitySummary> => {
 
   const snapshots = await getLatestSnapshots();
 
-  // Build fee rate lookup
+  // Build fee rate lookup (latest per vault)
+  const latestFees = latestFeeConfigIds();
   const feeRates = await db
     .select({
       vaultId: feeConfigs.vaultId,
       performanceFee: feeConfigs.performanceFee,
       managementFee: feeConfigs.managementFee,
     })
-    .from(feeConfigs);
+    .from(feeConfigs)
+    .innerJoin(latestFees, and(
+      eq(feeConfigs.vaultId, latestFees.vaultId),
+      eq(feeConfigs.id, latestFees.maxId),
+    ));
   const rateMap = toMap(
     feeRates,
     (r) => r.vaultId,
@@ -239,12 +244,7 @@ export const getProfitability = async (): Promise<ProfitabilitySummary> => {
 
   // Process each vault
   const vaultResults = snapshots
-    .filter(({ vault, snapshot }) =>
-      !vault.isRetired &&
-      (snapshot.tvlUsd ?? 0) > 10_000 &&
-      vault.category !== "curation" &&
-      vault.vaultType !== 2,
-    )
+    .filter(({ vault, snapshot }) => isAnalysisEligible(vault, snapshot.tvlUsd ?? 0))
     .map(({ vault, snapshot }) => {
       const tvlUsd = snapshot.tvlUsd ?? 0;
       const rates = rateMap.get(vault.id) || { performanceFee: 0, managementFee: 0 };
@@ -411,9 +411,14 @@ export const getProfitabilityTrends = async (periodDays: number = 30): Promise<T
 
   const snapshots = await getLatestSnapshots();
 
+  const latestFees = latestFeeConfigIds();
   const feeRates = await db
     .select({ vaultId: feeConfigs.vaultId, performanceFee: feeConfigs.performanceFee })
-    .from(feeConfigs);
+    .from(feeConfigs)
+    .innerJoin(latestFees, and(
+      eq(feeConfigs.vaultId, latestFees.vaultId),
+      eq(feeConfigs.id, latestFees.maxId),
+    ));
   const rateMap = toMap(feeRates, (r) => r.vaultId, (r) => r.performanceFee || 0);
 
   const currentAggs = await db
@@ -440,12 +445,7 @@ export const getProfitabilityTrends = async (periodDays: number = 30): Promise<T
   const previousMap = toMap(previousAggs, (r) => r.vaultId, (r) => r.totalGain);
 
   const results = snapshots
-    .filter(({ vault, snapshot }) =>
-      !vault.isRetired &&
-      (snapshot.tvlUsd ?? 0) > 10_000 &&
-      vault.category !== "curation" &&
-      vault.vaultType !== 2,
-    )
+    .filter(({ vault, snapshot }) => isAnalysisEligible(vault, snapshot.tvlUsd ?? 0))
     .map(({ vault, snapshot }) => {
       const tvlUsd = snapshot.tvlUsd ?? 0;
       const rate = rateMap.get(vault.id) || 0;

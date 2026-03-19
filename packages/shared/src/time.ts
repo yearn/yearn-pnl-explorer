@@ -9,7 +9,8 @@ export const toMondayNoon = (ts: number): number => {
   const diff = day === 0 ? 6 : day - 1;
   date.setUTCDate(date.getUTCDate() - diff);
   date.setUTCHours(12, 0, 0, 0);
-  return Math.floor(date.getTime() / 1000);
+  const result = Math.floor(date.getTime() / 1000);
+  return result > ts ? result - WEEK_SECONDS : result;
 };
 
 /** Generate weekly Monday-noon timestamps from start to end */

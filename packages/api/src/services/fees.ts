@@ -5,9 +5,10 @@
  * Management fee revenue is approximated from TVL × (managementFee / 10000) annualized.
  */
 import { db, vaults, vaultSnapshots, feeConfigs, strategyReports, assetPrices } from "@yearn-tvl/db";
-import { eq, and, desc, sql, gte, lte } from "drizzle-orm";
+import { eq, and, sql, gte } from "drizzle-orm";
 import type { VaultCategory } from "@yearn-tvl/shared";
 import { CHAIN_NAMES, toMondayNoon, YEAR_SECONDS, groupBy } from "@yearn-tvl/shared";
+import { latestFeeConfigIds } from "./queries.js";
 
 interface TimeWeightedMgmtFeeInput {
   totalAssetsRaw: string | null;
@@ -164,6 +165,7 @@ export const getFeeSummary = async (since?: number): Promise<FeeSummary> => {
 
 /** Get per-vault fee breakdown */
 export const getVaultFees = async (since?: number): Promise<VaultFeeDetail[]> => {
+  const latestFees = latestFeeConfigIds();
   const vaultRows = await db
     .select({
       id: vaults.id,
@@ -178,9 +180,29 @@ export const getVaultFees = async (since?: number): Promise<VaultFeeDetail[]> =>
     })
     .from(vaults)
     .innerJoin(feeConfigs, eq(feeConfigs.vaultId, vaults.id))
+    .innerJoin(latestFees, and(
+      eq(feeConfigs.vaultId, latestFees.vaultId),
+      eq(feeConfigs.id, latestFees.maxId),
+    ))
     .where(eq(vaults.isRetired, false));
 
   // Batch-load all data upfront to avoid N+1 queries
+  const reportQuery = db
+    .select({
+      vaultId: strategyReports.vaultId,
+      totalGain: sql<number>`COALESCE(SUM(${strategyReports.gainUsd}), 0)`,
+      totalLoss: sql<number>`COALESCE(SUM(${strategyReports.lossUsd}), 0)`,
+      count: sql<number>`COUNT(*)`,
+      firstReport: sql<number>`MIN(${strategyReports.blockTime})`,
+      lastReport: sql<number>`MAX(${strategyReports.blockTime})`,
+    })
+    .from(strategyReports);
+  const filtered = since
+    ? reportQuery.where(gte(strategyReports.blockTime, since))
+    : reportQuery;
+  const reportAggs = await filtered.groupBy(strategyReports.vaultId);
+  const reportMap = new Map(reportAggs.map((r) => [r.vaultId, r]));
+
   const [snapshots, pricesByAsset] = await Promise.all([
     loadLatestSnapshots(),
     loadPricesByAsset(),
@@ -192,22 +214,7 @@ export const getVaultFees = async (since?: number): Promise<VaultFeeDetail[]> =>
     const snapshot = snapshots.get(vault.id);
     const tvlUsd = snapshot?.tvlUsd || 0;
 
-    const conditions = [eq(strategyReports.vaultId, vault.id)];
-    if (since) {
-      conditions.push(gte(strategyReports.blockTime, since));
-    }
-
-    const [agg] = await db
-      .select({
-        totalGain: sql<number>`COALESCE(SUM(${strategyReports.gainUsd}), 0)`,
-        totalLoss: sql<number>`COALESCE(SUM(${strategyReports.lossUsd}), 0)`,
-        count: sql<number>`COUNT(*)`,
-        firstReport: sql<number>`MIN(${strategyReports.blockTime})`,
-        lastReport: sql<number>`MAX(${strategyReports.blockTime})`,
-      })
-      .from(strategyReports)
-      .where(and(...conditions));
-
+    const agg = reportMap.get(vault.id);
     const totalGain = agg?.totalGain || 0;
     const totalLoss = agg?.totalLoss || 0;
     const count = agg?.count || 0;
@@ -273,9 +280,14 @@ const getPeriodKey = (blockTime: number, interval: "weekly" | "monthly"): string
 export const getFeeHistory = async (
   interval: "weekly" | "monthly" = "monthly",
 ): Promise<FeeHistoryBucket[]> => {
+  const latestFees = latestFeeConfigIds();
   const feeRates = await db
     .select({ vaultId: feeConfigs.vaultId, performanceFee: feeConfigs.performanceFee })
-    .from(feeConfigs);
+    .from(feeConfigs)
+    .innerJoin(latestFees, and(
+      eq(feeConfigs.vaultId, latestFees.vaultId),
+      eq(feeConfigs.id, latestFees.maxId),
+    ));
   const rateMap = new Map(feeRates.map((r) => [r.vaultId, r.performanceFee || 0]));
 
   const reports = await db

@@ -46,7 +46,13 @@ const fetchKongVaults = async (): Promise<KongVault[]> => {
   });
 
   if (!res.ok) throw new Error(`Kong API error: ${res.status} ${res.statusText}`);
-  const json = (await res.json()) as { data: { vaults: KongVault[] } };
+  const json = (await res.json()) as { data?: { vaults: KongVault[] }; errors?: Array<{ message: string }> };
+  if (json.errors?.length) {
+    throw new Error(`Kong GraphQL errors: ${json.errors.map((e) => e.message).join(", ")}`);
+  }
+  if (!json.data?.vaults) {
+    throw new Error("Kong API returned no vault data");
+  }
   return json.data.vaults;
 };
 

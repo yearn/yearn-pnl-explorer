@@ -27,7 +27,7 @@ const buildPriceCache = async (): Promise<Map<string, { ts: number; price: numbe
     .from(assetPrices);
 
   const cache = allPrices.reduce((acc, row) => {
-    const key = `${row.chainId}:${row.address}`;
+    const key = `${row.chainId}:${row.address.toLowerCase()}`;
     const arr = acc.get(key) ?? [];
     arr.push({ ts: row.timestamp, price: row.priceUsd });
     return acc.set(key, arr);

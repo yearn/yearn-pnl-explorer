@@ -3,10 +3,10 @@
  * Uses existing DB data to surface underperforming vaults and concentration risk.
  */
 import { db, vaults, vaultSnapshots, feeConfigs, strategyReports, depositors } from "@yearn-tvl/db";
-import { eq, and, desc, sql, gte } from "drizzle-orm";
+import { eq, and, sql, gte } from "drizzle-orm";
 import type { VaultCategory } from "@yearn-tvl/shared";
-import { CHAIN_NAMES } from "@yearn-tvl/shared";
-import { latestSnapshotIds } from "./queries.js";
+import { toMap } from "@yearn-tvl/shared";
+import { latestSnapshotIds, latestFeeConfigIds, isAnalysisEligible } from "./queries.js";
 
 type Classification = "dead" | "low-yield" | "healthy";
 
@@ -96,35 +96,40 @@ export const getDeadTvlAnalysis = async (): Promise<DeadTvlResult> => {
     ))
     .where(eq(vaults.isRetired, false));
 
+  // Batch-load report aggregates for all vaults (last 365d)
+  const reportAggs = await db
+    .select({
+      vaultId: strategyReports.vaultId,
+      totalGain: sql<number>`COALESCE(SUM(${strategyReports.gainUsd}), 0)`,
+      count: sql<number>`COUNT(*)`,
+      lastReport: sql<number>`MAX(${strategyReports.blockTime})`,
+    })
+    .from(strategyReports)
+    .where(gte(strategyReports.blockTime, cutoff))
+    .groupBy(strategyReports.vaultId);
+  const reportMap = toMap(reportAggs, (r) => r.vaultId);
+
+  // Batch-load latest fee configs
+  const latestFees = latestFeeConfigIds();
+  const feeRows = await db
+    .select({ vaultId: feeConfigs.vaultId, performanceFee: feeConfigs.performanceFee })
+    .from(feeConfigs)
+    .innerJoin(latestFees, and(
+      eq(feeConfigs.vaultId, latestFees.vaultId),
+      eq(feeConfigs.id, latestFees.maxId),
+    ));
+  const feeMap = toMap(feeRows, (r) => r.vaultId, (r) => r.performanceFee || 0);
+
   const result: DeadTvlVault[] = [];
 
   for (const vault of activeVaults) {
     const tvlUsd = vault.tvlUsd ?? 0;
-    if (tvlUsd <= 10_000) continue;
-    if (vault.category === "curation" || vault.vaultType === 2) continue;
+    if (!isAnalysisEligible(vault, tvlUsd)) continue;
 
-    const [reportAgg] = await db
-      .select({
-        totalGain: sql<number>`COALESCE(SUM(${strategyReports.gainUsd}), 0)`,
-        count: sql<number>`COUNT(*)`,
-        lastReport: sql<number>`MAX(${strategyReports.blockTime})`,
-      })
-      .from(strategyReports)
-      .where(and(
-        eq(strategyReports.vaultId, vault.id),
-        gte(strategyReports.blockTime, cutoff),
-      ));
-
+    const reportAgg = reportMap.get(vault.id);
     const gains365d = reportAgg?.totalGain || 0;
     const reportCount365d = reportAgg?.count || 0;
     const gainToTvlRatio = tvlUsd > 0 ? gains365d / tvlUsd : 0;
-
-    const [feeRow] = await db
-      .select({ performanceFee: feeConfigs.performanceFee })
-      .from(feeConfigs)
-      .where(eq(feeConfigs.vaultId, vault.id))
-      .orderBy(desc(feeConfigs.id))
-      .limit(1);
 
     const classification = classify(reportCount365d > 0, gainToTvlRatio);
 
@@ -136,7 +141,7 @@ export const getDeadTvlAnalysis = async (): Promise<DeadTvlResult> => {
       tvlUsd,
       gains365d,
       gainToTvlRatio,
-      feeRevenue365d: gains365d * ((feeRow?.performanceFee || 0) / 10000),
+      feeRevenue365d: gains365d * ((feeMap.get(vault.id) || 0) / 10000),
       classification,
       lastReportDate: reportAgg?.lastReport
         ? new Date(reportAgg.lastReport * 1000).toISOString()

@@ -424,7 +424,7 @@ export function FeesPanel() {
                               </span>
                               {!isRoot && (
                                 <span style={{ color: "var(--accent)", fontSize: "0.65rem", marginRight: 4, opacity: 0.6 }}>
-                                  \u2192
+                                  {"\u2192"}
                                 </span>
                               )}
                               <span style={{ color: isRoot ? "var(--text)" : "var(--text-2)" }}>

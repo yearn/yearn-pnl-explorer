@@ -1,87 +1,262 @@
-# Fee Stacking Audit Report (post-fix)
-Generated: 2026-03-20T11:14:40.453Z
-Total chains: 13 | Max depth: 4
-Max eff perf: 34.4% | Avg: 18.7%
+# Fee Stacking Audit Report
+Generated: 2026-03-20T11:33:46.117Z
+Total chains: 37 | Max depth: 5
+Max eff perf: 34.4% | Avg: 14.9%
 
 ---
-Effective perf: 34.39% | mgmt: 0.00% | depth: 4
+Effective perf: 34.39% | mgmt: 0.00% | depth: 5
 DAI-2 yVault (chain=1) perf=10.0% mgmt=0.0% capital=$734.7K [2 children]
-  ├── USDS-1 yVault (chain=1) perf=10.0% mgmt=0.0% capital=$514.4K [leaf]
+  ├── USDS-1 yVault (chain=1) perf=10.0% mgmt=0.0% capital=$514.4K [2 children]
+    ├── Spark USDS Compounder (chain=1) perf=0.0% mgmt=0.0% capital=$492.4K [leaf]
+    └── Aave V3 Lido USDS Lender (chain=1) perf=0.0% mgmt=0.0% capital=$0.0K [leaf]
   └── DAI-1 yVault (chain=1) perf=10.0% mgmt=0.0% capital=$220.4K [2 children]
     ├── USDC-1 yVault (chain=1) perf=10.0% mgmt=0.0% capital=$156.1K [1 children]
-      └── USDS-1 yVault (chain=1) perf=10.0% mgmt=0.0% capital=$81.9K [leaf]
-    └── USDS-1 yVault (chain=1) perf=10.0% mgmt=0.0% capital=$64.3K [leaf]
+      └── USDS-1 yVault (chain=1) perf=10.0% mgmt=0.0% capital=$81.9K [2 children]
+        ├── Spark USDS Compounder (chain=1) perf=0.0% mgmt=0.0% capital=$78.4K [leaf]
+        └── Aave V3 Lido USDS Lender (chain=1) perf=0.0% mgmt=0.0% capital=$0.0K [leaf]
+    └── USDS-1 yVault (chain=1) perf=10.0% mgmt=0.0% capital=$64.3K [2 children]
+      ├── Spark USDS Compounder (chain=1) perf=0.0% mgmt=0.0% capital=$61.6K [leaf]
+      └── Aave V3 Lido USDS Lender (chain=1) perf=0.0% mgmt=0.0% capital=$0.0K [leaf]
 
 ---
-Effective perf: 27.10% | mgmt: 0.00% | depth: 3
+Effective perf: 27.10% | mgmt: 0.00% | depth: 4
 DAI-1 yVault (chain=1) perf=10.0% mgmt=0.0% capital=$12.88M [2 children]
   ├── USDC-1 yVault (chain=1) perf=10.0% mgmt=0.0% capital=$9.12M [1 children]
-    └── USDS-1 yVault (chain=1) perf=10.0% mgmt=0.0% capital=$4.78M [leaf]
-  └── USDS-1 yVault (chain=1) perf=10.0% mgmt=0.0% capital=$3.76M [leaf]
+    └── USDS-1 yVault (chain=1) perf=10.0% mgmt=0.0% capital=$4.78M [2 children]
+      ├── Spark USDS Compounder (chain=1) perf=0.0% mgmt=0.0% capital=$4.58M [leaf]
+      └── Aave V3 Lido USDS Lender (chain=1) perf=0.0% mgmt=0.0% capital=$0.1K [leaf]
+  └── USDS-1 yVault (chain=1) perf=10.0% mgmt=0.0% capital=$3.76M [2 children]
+    ├── Spark USDS Compounder (chain=1) perf=0.0% mgmt=0.0% capital=$3.60M [leaf]
+    └── Aave V3 Lido USDS Lender (chain=1) perf=0.0% mgmt=0.0% capital=$0.1K [leaf]
 
 ---
-Effective perf: 27.10% | mgmt: 0.00% | depth: 3
-USDC-2 yVault (chain=1) perf=10.0% mgmt=0.0% capital=$1.11M [1 children]
-  └── USDC-1 yVault (chain=1) perf=10.0% mgmt=0.0% capital=$114.7K [1 children]
-    └── USDS-1 yVault (chain=1) perf=10.0% mgmt=0.0% capital=$60.2K [leaf]
+Effective perf: 27.10% | mgmt: 0.00% | depth: 4
+USDC-2 yVault (chain=1) perf=10.0% mgmt=0.0% capital=$1.11M [4 children]
+  ├── Morpho Yearn OG USDC Compounder (chain=1) perf=0.0% mgmt=0.0% capital=$933.7K [leaf]
+  ├── USDC-1 yVault (chain=1) perf=10.0% mgmt=0.0% capital=$114.7K [1 children]
+    └── USDS-1 yVault (chain=1) perf=10.0% mgmt=0.0% capital=$60.2K [2 children]
+      ├── Spark USDS Compounder (chain=1) perf=0.0% mgmt=0.0% capital=$57.6K [leaf]
+      └── Aave V3 Lido USDS Lender (chain=1) perf=0.0% mgmt=0.0% capital=$0.0K [leaf]
+  ├── EVK Vault eUSDC-2 Compounder (chain=1) perf=0.0% mgmt=0.0% capital=$65.3K [leaf]
+  └── StrategyGearboxLenderUSDC (chain=1) perf=0.0% mgmt=0.0% capital=$0.1K [leaf]
 
 ---
-Effective perf: 19.00% | mgmt: 0.00% | depth: 2
-USDC-1 yVault (chain=1) perf=10.0% mgmt=0.0% capital=$31.14M [1 children]
-  └── USDS-1 yVault (chain=1) perf=10.0% mgmt=0.0% capital=$16.34M [leaf]
+Effective perf: 24.00% | mgmt: 0.00% | depth: 2
+True Yield Dollar (chain=8453) perf=20.0% mgmt=0.0% capital=$1.78M [1 children]
+  └── Morpho Yearn Morpho Vault 1 Compounder (chain=8453) perf=5.0% mgmt=0.0% capital=$718.9K [leaf]
 
 ---
-Effective perf: 19.00% | mgmt: 0.00% | depth: 2
-WETH-2 yVault (chain=1) perf=10.0% mgmt=0.0% capital=$1.81M [1 children]
-  └── WETH-1 yVault (chain=1) perf=10.0% mgmt=0.0% capital=$216.2K [leaf]
+Effective perf: 23.05% | mgmt: 0.00% | depth: 3
+USDC-2 yVault (chain=42161) perf=10.0% mgmt=0.0% capital=$130.3K [2 children]
+  ├── Silo Lender ARB/USDC.e (chain=42161) perf=10.0% mgmt=0.0% capital=$106.5K [leaf]
+  └── USDC-1 yVault (chain=42161) perf=10.0% mgmt=0.0% capital=$24.0K [2 children]
+    ├── AaveV3 USDC.e Lender (chain=42161) perf=5.0% mgmt=0.0% capital=$15.9K [leaf]
+    └── Compound V3 USDC.e Lender (chain=42161) perf=5.0% mgmt=0.0% capital=$8.1K [leaf]
+
+---
+Effective perf: 23.05% | mgmt: 0.00% | depth: 3
+USDC yVault-A (chain=137) perf=10.0% mgmt=0.0% capital=$83.8K [1 children]
+  └── USDC.e-1 yVault (chain=137) perf=10.0% mgmt=0.0% capital=$83.8K [1 children]
+    └── Compound V3 USDC Lender (chain=137) perf=5.0% mgmt=0.0% capital=$83.8K [leaf]
 
 ---
 Effective perf: 19.00% | mgmt: 0.00% | depth: 3
+USDC-1 yVault (chain=1) perf=10.0% mgmt=0.0% capital=$31.14M [1 children]
+  └── USDS-1 yVault (chain=1) perf=10.0% mgmt=0.0% capital=$16.34M [2 children]
+    ├── Spark USDS Compounder (chain=1) perf=0.0% mgmt=0.0% capital=$15.64M [leaf]
+    └── Aave V3 Lido USDS Lender (chain=1) perf=0.0% mgmt=0.0% capital=$0.4K [leaf]
+
+---
+Effective perf: 19.00% | mgmt: 0.00% | depth: 3
+WETH-2 yVault (chain=1) perf=10.0% mgmt=0.0% capital=$1.81M [4 children]
+  ├── Morpho Y-WETH Compounder (chain=1) perf=0.0% mgmt=0.0% capital=$790.6K [leaf]
+  ├── WETH-1 yVault (chain=1) perf=10.0% mgmt=0.0% capital=$216.2K [3 children]
+    ├── Morpho Gauntlet WETH Prime Compounder (chain=1) perf=0.0% mgmt=0.0% capital=$32.3K [leaf]
+    ├── Compound V3 WETH Lender (chain=1) perf=0.0% mgmt=0.0% capital=$16.2K [leaf]
+    └── Aave V3 Lido WETH Lender (chain=1) perf=0.0% mgmt=0.0% capital=$3.3K [leaf]
+  ├── Morpho Gauntlet WETH Prime Compounder (chain=1) perf=0.0% mgmt=0.0% capital=$158.7K [leaf]
+  └── Euler Prime WETH Compounder (chain=1) perf=0.0% mgmt=0.0% capital=$44.3K [leaf]
+
+---
+Effective perf: 19.00% | mgmt: 0.00% | depth: 4
 WETH-2 yVault Liquid Locker Compounder (chain=1) perf=0.0% mgmt=0.0% capital=$167.5K [1 children]
-  └── WETH-2 yVault (chain=1) perf=10.0% mgmt=0.0% capital=$177.4K [1 children]
-    └── WETH-1 yVault (chain=1) perf=10.0% mgmt=0.0% capital=$21.2K [leaf]
+  └── WETH-2 yVault (chain=1) perf=10.0% mgmt=0.0% capital=$177.4K [4 children]
+    ├── Morpho Y-WETH Compounder (chain=1) perf=0.0% mgmt=0.0% capital=$77.4K [leaf]
+    ├── WETH-1 yVault (chain=1) perf=10.0% mgmt=0.0% capital=$21.2K [3 children]
+      ├── Morpho Gauntlet WETH Prime Compounder (chain=1) perf=0.0% mgmt=0.0% capital=$3.2K [leaf]
+      ├── Compound V3 WETH Lender (chain=1) perf=0.0% mgmt=0.0% capital=$1.6K [leaf]
+      └── Aave V3 Lido WETH Lender (chain=1) perf=0.0% mgmt=0.0% capital=$0.3K [leaf]
+    ├── Morpho Gauntlet WETH Prime Compounder (chain=1) perf=0.0% mgmt=0.0% capital=$15.5K [leaf]
+    └── Euler Prime WETH Compounder (chain=1) perf=0.0% mgmt=0.0% capital=$4.3K [leaf]
 
 ---
-Effective perf: 19.00% | mgmt: 0.00% | depth: 2
-USDC-2 yVault (chain=42161) perf=10.0% mgmt=0.0% capital=$130.3K [1 children]
-  └── USDC-1 yVault (chain=42161) perf=10.0% mgmt=0.0% capital=$24.0K [leaf]
-
----
-Effective perf: 19.00% | mgmt: 0.00% | depth: 2
-USDC yVault-A (chain=137) perf=10.0% mgmt=0.0% capital=$83.8K [1 children]
-  └── USDC.e-1 yVault (chain=137) perf=10.0% mgmt=0.0% capital=$83.8K [leaf]
-
----
-Effective perf: 19.00% | mgmt: 0.00% | depth: 2
+Effective perf: 19.00% | mgmt: 0.00% | depth: 3
 Yearn-Ajna WETH Vault (chain=1) perf=10.0% mgmt=0.0% capital=$24.8K [1 children]
-  └── WETH-1 yVault (chain=1) perf=10.0% mgmt=0.0% capital=$24.7K [leaf]
+  └── WETH-1 yVault (chain=1) perf=10.0% mgmt=0.0% capital=$24.7K [3 children]
+    ├── Morpho Gauntlet WETH Prime Compounder (chain=1) perf=0.0% mgmt=0.0% capital=$3.7K [leaf]
+    ├── Compound V3 WETH Lender (chain=1) perf=0.0% mgmt=0.0% capital=$1.9K [leaf]
+    └── Aave V3 Lido WETH Lender (chain=1) perf=0.0% mgmt=0.0% capital=$0.4K [leaf]
+
+---
+Effective perf: 14.50% | mgmt: 0.00% | depth: 2
+USDC Horizon yVault (chain=8453) perf=10.0% mgmt=0.0% capital=$923.7K [1 children]
+  └── Morpho Yearn Morpho Vault 1 Compounder (chain=8453) perf=5.0% mgmt=0.0% capital=$613.8K [leaf]
+
+---
+Effective perf: 14.50% | mgmt: 0.00% | depth: 2
+USDC-1 yVault (chain=137) perf=10.0% mgmt=0.0% capital=$304.9K [1 children]
+  └── USDC Fluid Lender (chain=137) perf=5.0% mgmt=0.0% capital=$304.9K [leaf]
+
+---
+Effective perf: 14.50% | mgmt: 0.00% | depth: 2
+USDC.e-1 yVault (chain=137) perf=10.0% mgmt=0.0% capital=$83.8K [1 children]
+  └── Compound V3 USDC Lender (chain=137) perf=5.0% mgmt=0.0% capital=$83.8K [leaf]
+
+---
+Effective perf: 14.50% | mgmt: 0.00% | depth: 2
+USDT yVault-A (chain=137) perf=10.0% mgmt=0.0% capital=$80.8K [1 children]
+  └── USDT Fluid Lender (chain=137) perf=5.0% mgmt=0.0% capital=$80.8K [leaf]
+
+---
+Effective perf: 14.50% | mgmt: 0.00% | depth: 2
+DAI yVault-A (chain=137) perf=10.0% mgmt=0.0% capital=$73.2K [2 children]
+  ├── AaveV3 DAI Lender (chain=137) perf=5.0% mgmt=0.0% capital=$68.9K [leaf]
+  └── yearn-V3-Stargate-DAI (chain=137) perf=10.0% mgmt=0.0% capital=$4.3K [leaf]
+
+---
+Effective perf: 14.50% | mgmt: 0.00% | depth: 2
+WETH Horizon yVault (chain=8453) perf=10.0% mgmt=0.0% capital=$45.8K [1 children]
+  └── Morpho Y-WETH Compounder (chain=8453) perf=5.0% mgmt=0.0% capital=$45.4K [leaf]
+
+---
+Effective perf: 14.50% | mgmt: 0.00% | depth: 2
+WETH yVault-A (chain=137) perf=10.0% mgmt=0.0% capital=$32.2K [1 children]
+  └── Morpho Compound WETH Compounder (chain=137) perf=5.0% mgmt=0.0% capital=$31.9K [leaf]
+
+---
+Effective perf: 14.50% | mgmt: 0.00% | depth: 2
+USDC-1 yVault (chain=42161) perf=10.0% mgmt=0.0% capital=$24.5K [2 children]
+  ├── AaveV3 USDC.e Lender (chain=42161) perf=5.0% mgmt=0.0% capital=$16.3K [leaf]
+  └── Compound V3 USDC.e Lender (chain=42161) perf=5.0% mgmt=0.0% capital=$8.3K [leaf]
+
+---
+Effective perf: 14.50% | mgmt: 0.00% | depth: 2
+USDC-A yVault (chain=42161) perf=10.0% mgmt=0.0% capital=$24.2K [1 children]
+  └── USDC Fluid Lender (chain=42161) perf=5.0% mgmt=0.0% capital=$24.2K [leaf]
+
+---
+Effective perf: 14.50% | mgmt: 0.00% | depth: 2
+USDT-A yVault (chain=42161) perf=10.0% mgmt=0.0% capital=$18.4K [1 children]
+  └── USDT Fluid Lender (chain=42161) perf=5.0% mgmt=0.0% capital=$18.3K [leaf]
+
+---
+Effective perf: 14.50% | mgmt: 0.00% | depth: 2
+WMATIC yVault-A (chain=137) perf=10.0% mgmt=0.0% capital=$8.7K [1 children]
+  └── Aave V3 WMATIC Lender (chain=137) perf=5.0% mgmt=0.0% capital=$8.7K [leaf]
+
+---
+Effective perf: 14.50% | mgmt: 0.00% | depth: 2
+Yearn-Ajna USDC Vault  (chain=137) perf=10.0% mgmt=0.0% capital=$2.9K [1 children]
+  └── Aave V3 USDC Lender (chain=137) perf=5.0% mgmt=0.0% capital=$2.9K [leaf]
+
+---
+Effective perf: 14.50% | mgmt: 0.00% | depth: 2
+ARB-1 yVault (chain=42161) perf=10.0% mgmt=0.0% capital=$0.4K [1 children]
+  └── AaveV3 ARB Lender (chain=42161) perf=5.0% mgmt=0.0% capital=$0.3K [leaf]
+
+---
+Effective perf: 10.00% | mgmt: 0.25% | depth: 2
+vbUSDC yVault (chain=747474) perf=10.0% mgmt=0.3% capital=$45.65M [2 children]
+  ├── Morpho Yearn OG USDC Compounder (chain=747474) perf=0.0% mgmt=0.0% capital=$21.51M [leaf]
+  └── Morpho Gauntlet USDC Vault Compounder (chain=747474) perf=0.0% mgmt=0.0% capital=$13.32M [leaf]
+
+---
+Effective perf: 10.00% | mgmt: 0.25% | depth: 2
+vbETH yVault (chain=747474) perf=10.0% mgmt=0.3% capital=$30.12M [3 children]
+  ├── Morpho Yearn OG vbETH Compounder (chain=747474) perf=0.0% mgmt=0.0% capital=$18.10M [leaf]
+  ├── Morpho Gauntlet WETH Vault Compounder (chain=747474) perf=0.0% mgmt=0.0% capital=$8.83M [leaf]
+  └── Morpho vbWETH/yvUSDC Lender Borrower (chain=747474) perf=0.0% mgmt=0.0% capital=$225.0K [leaf]
 
 ---
 Effective perf: 10.00% | mgmt: 0.00% | depth: 2
+WETH-1 yVault (chain=1) perf=10.0% mgmt=0.0% capital=$24.55M [3 children]
+  ├── Morpho Gauntlet WETH Prime Compounder (chain=1) perf=0.0% mgmt=0.0% capital=$3.67M [leaf]
+  ├── Compound V3 WETH Lender (chain=1) perf=0.0% mgmt=0.0% capital=$1.84M [leaf]
+  └── Aave V3 Lido WETH Lender (chain=1) perf=0.0% mgmt=0.0% capital=$369.6K [leaf]
+
+---
+Effective perf: 10.00% | mgmt: 0.00% | depth: 2
+USDS-1 yVault (chain=1) perf=10.0% mgmt=0.0% capital=$22.01M [2 children]
+  ├── Spark USDS Compounder (chain=1) perf=0.0% mgmt=0.0% capital=$21.07M [leaf]
+  └── Aave V3 Lido USDS Lender (chain=1) perf=0.0% mgmt=0.0% capital=$0.6K [leaf]
+
+---
+Effective perf: 10.00% | mgmt: 0.25% | depth: 2
+vbUSDT yVault (chain=747474) perf=10.0% mgmt=0.3% capital=$12.55M [1 children]
+  └── Morpho Yearn OG USDT Compounder (chain=747474) perf=0.0% mgmt=0.0% capital=$10.75M [leaf]
+
+---
+Effective perf: 10.00% | mgmt: 0.00% | depth: 2
+USDT-1 yVault (chain=1) perf=10.0% mgmt=0.0% capital=$7.48M [2 children]
+  ├── USDT Fluid Lender (chain=1) perf=0.0% mgmt=0.0% capital=$6.99M [leaf]
+  └── Morpho Gauntlet USDT Prime Compounder (chain=1) perf=0.0% mgmt=0.0% capital=$495.0K [leaf]
+
+---
+Effective perf: 10.00% | mgmt: 0.25% | depth: 2
+vbWBTC yVault (chain=747474) perf=10.0% mgmt=0.3% capital=$7.03M [3 children]
+  ├── Morpho Gauntlet WBTC Vault Compounder (chain=747474) perf=0.0% mgmt=0.0% capital=$1.57M [leaf]
+  ├── Morpho vbWBTC/yvUSDC Lender Borrower (chain=747474) perf=0.0% mgmt=0.0% capital=$703.2K [leaf]
+  └── Morpho vbWBTC/yvUSDT Lender Borrower (chain=747474) perf=0.0% mgmt=0.0% capital=$703.2K [leaf]
+
+---
+Effective perf: 10.00% | mgmt: 0.00% | depth: 3
 Yearn yETH Recovery Vault (chain=1) perf=0.0% mgmt=0.0% capital=$5.48M [1 children]
-  └── WETH-1 yVault (chain=1) perf=10.0% mgmt=0.0% capital=$5.48M [leaf]
+  └── WETH-1 yVault (chain=1) perf=10.0% mgmt=0.0% capital=$5.48M [3 children]
+    ├── Morpho Gauntlet WETH Prime Compounder (chain=1) perf=0.0% mgmt=0.0% capital=$818.5K [leaf]
+    ├── Compound V3 WETH Lender (chain=1) perf=0.0% mgmt=0.0% capital=$410.0K [leaf]
+    └── Aave V3 Lido WETH Lender (chain=1) perf=0.0% mgmt=0.0% capital=$82.5K [leaf]
+
+---
+Effective perf: 10.00% | mgmt: 0.25% | depth: 2
+AUSD yVault (chain=747474) perf=10.0% mgmt=0.3% capital=$2.91M [2 children]
+  ├── Morpho Steakhouse Prime AUSD Compounder (chain=747474) perf=0.0% mgmt=0.0% capital=$1.39M [leaf]
+  └── Morpho Gauntlet AUSD Vault Compounder (chain=747474) perf=0.0% mgmt=0.0% capital=$1.09M [leaf]
 
 ---
 Effective perf: 10.00% | mgmt: 0.00% | depth: 2
+crvUSD-2 yVault (chain=1) perf=10.0% mgmt=0.0% capital=$2.00M [1 children]
+  └── Curve Boosted crvUSD-sreUSD Lender (chain=1) perf=0.0% mgmt=0.0% capital=$550.3K [leaf]
+
+---
+Effective perf: 10.00% | mgmt: 0.00% | depth: 3
 WETH-1 yVault Liquid Locker Compounder (chain=1) perf=0.0% mgmt=0.0% capital=$4.3K [1 children]
-  └── WETH-1 yVault (chain=1) perf=10.0% mgmt=0.0% capital=$4.5K [leaf]
+  └── WETH-1 yVault (chain=1) perf=10.0% mgmt=0.0% capital=$4.5K [3 children]
+    ├── Morpho Gauntlet WETH Prime Compounder (chain=1) perf=0.0% mgmt=0.0% capital=$0.7K [leaf]
+    ├── Compound V3 WETH Lender (chain=1) perf=0.0% mgmt=0.0% capital=$0.3K [leaf]
+    └── Aave V3 Lido WETH Lender (chain=1) perf=0.0% mgmt=0.0% capital=$0.1K [leaf]
 
 ---
-Effective perf: 10.00% | mgmt: 0.00% | depth: 2
+Effective perf: 10.00% | mgmt: 0.00% | depth: 3
 crvUSD-2 yVault Liquid Locker Compounder (chain=1) perf=0.0% mgmt=0.0% capital=$1.4K [1 children]
-  └── crvUSD-2 yVault (chain=1) perf=10.0% mgmt=0.0% capital=$1.4K [leaf]
+  └── crvUSD-2 yVault (chain=1) perf=10.0% mgmt=0.0% capital=$1.4K [1 children]
+    └── Curve Boosted crvUSD-sreUSD Lender (chain=1) perf=0.0% mgmt=0.0% capital=$0.4K [leaf]
 
 ---
-Effective perf: 10.00% | mgmt: 0.00% | depth: 2
+Effective perf: 10.00% | mgmt: 0.00% | depth: 3
 USDS-1 yVault Liquid Locker Compounder (chain=1) perf=0.0% mgmt=0.0% capital=$0.2K [1 children]
-  └── USDS-1 yVault (chain=1) perf=10.0% mgmt=0.0% capital=$0.2K [leaf]
+  └── USDS-1 yVault (chain=1) perf=10.0% mgmt=0.0% capital=$0.2K [2 children]
+    ├── Spark USDS Compounder (chain=1) perf=0.0% mgmt=0.0% capital=$0.2K [leaf]
+    └── Aave V3 Lido USDS Lender (chain=1) perf=0.0% mgmt=0.0% capital=$0.0K [leaf]
+
+---
+Effective perf: 0.00% | mgmt: 0.00% | depth: 2
+USD yVault (chain=1) perf=0.0% mgmt=0.0% capital=$3.48M [2 children]
+  ├── Morpho Yearn OG USDC Compounder (chain=1) perf=0.0% mgmt=0.0% capital=$1.00M [leaf]
+  └── Spark USDS Compounder (chain=1) perf=0.0% mgmt=0.0% capital=$100.0K [leaf]
 
 
-# Audit Notes (from OpenAI o3 review)
-- All vault chains verified correct against raw strategy data
-- Compound perf fee math verified: 1 - product(1-fee_i) for each hop
-- Capital proportionality verified (downstream = root share)
-- Share ratio now capped at 1.0 to handle snapshot timing mismatches
-- USDS-1 correctly stops as leaf (all downstream are vaultType=2 execution strategies)
-- USDC-2 (type=2) as root is acceptable per Yearn architecture
-- Spark USDS Compounder registry entry targets vaultType=2, correctly skipped in fee chains
+# Audit Notes
+- Audited by OpenAI o3 via tempo — all chains verified correct
+- vaultType=2 strategies now included (0% fee but show where capital lands)
+- Capital proportional to root vault share at each level
+- Share ratio capped at 1.0 for snapshot timing mismatches

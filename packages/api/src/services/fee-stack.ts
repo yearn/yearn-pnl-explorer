@@ -74,7 +74,6 @@ function buildNode(
 
       const targetVault = vaultLookup.get(targetKey);
       if (!targetVault) continue;
-      if (targetVault.vaultType === 2) continue;
 
       const targetFees = feeByAddress.get(targetKey) || { performanceFee: 0, managementFee: 0 };
 
@@ -155,12 +154,11 @@ export async function getFeeStackAnalysis(): Promise<FeeStackSummary> {
   const chains: FeeStackChain[] = [];
 
   for (const vault of auditTree.vaults) {
-    // Only consider vaults that have funded overlapping strategies into allocator vaults
+    // Only consider vaults that have funded overlapping strategies into other vaults
     const hasFundedOverlap = vault.strategies.some((s) => {
       if (!s.detectionMethod || !s.targetVaultAddress || s.debtUsd <= 0) return false;
       const targetKey = `${s.targetVaultChainId || vault.chainId}:${s.targetVaultAddress.toLowerCase()}`;
-      const target = vaultLookup.get(targetKey);
-      return target && target.vaultType !== 2;
+      return vaultLookup.has(targetKey);
     });
     if (!hasFundedOverlap) continue;
 

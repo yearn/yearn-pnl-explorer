@@ -106,41 +106,64 @@ function treeDepth(node: FeeStackNode): number {
   return 1 + Math.max(...node.children.map(treeDepth));
 }
 
-/** Collect all nodes in DFS order (for compound fee calc) */
-function collectNodes(node: FeeStackNode): FeeStackNode[] {
-  const result: FeeStackNode[] = [node];
-  for (const child of node.children) {
-    result.push(...collectNodes(child));
+/**
+ * Compute capital-weighted effective fee across all paths in the tree.
+ *
+ * Each leaf represents a terminal allocation. The compound fee for that leaf
+ * is 1 - product(1 - fee_i) along the path from root to leaf. The effective
+ * fee for the whole tree is the capital-weighted average of all leaf compound
+ * fees, where weight = leaf.capitalUsd / root.capitalUsd.
+ */
+function capitalWeightedFee(root: FeeStackNode): { perfFee: number; mgmtFee: number } {
+  const rootCapital = root.capitalUsd;
+  if (rootCapital <= 0) return { perfFee: 0, mgmtFee: 0 };
+
+  // Collect all leaf paths with their compound fees and capital
+  const leaves: Array<{ compoundPerf: number; additiveMgmt: number; capital: number }> = [];
+
+  function walk(node: FeeStackNode, pathPerfProduct: number, pathMgmtSum: number) {
+    const perf = node.perfFee / 10000;
+    const mgmt = node.mgmtFee / 10000;
+    const newProduct = pathPerfProduct * (1 - perf);
+    const newMgmt = pathMgmtSum + mgmt;
+
+    if (node.children.length === 0) {
+      // Leaf — record the compound fee for this path
+      leaves.push({
+        compoundPerf: 1 - newProduct, // effective rate for this path
+        additiveMgmt: newMgmt,
+        capital: node.capitalUsd,
+      });
+    } else {
+      // Capital that stays at this level (not allocated to children)
+      const childCapital = node.children.reduce((s, c) => s + c.capitalUsd, 0);
+      const unallocated = Math.max(0, node.capitalUsd - childCapital);
+      if (unallocated > 0) {
+        // This portion only pays fees up to this node, not deeper
+        leaves.push({
+          compoundPerf: 1 - newProduct,
+          additiveMgmt: newMgmt,
+          capital: unallocated,
+        });
+      }
+      for (const child of node.children) {
+        walk(child, newProduct, newMgmt);
+      }
+    }
   }
-  return result;
-}
 
-/** Find the deepest path and compute compound perf fee along it */
-function deepestPathCompoundFee(node: FeeStackNode): { perfFee: number; mgmtFee: number } {
-  if (node.children.length === 0) {
-    return {
-      perfFee: node.capitalUsd > 0 ? node.perfFee : 0,
-      mgmtFee: node.capitalUsd > 0 ? node.mgmtFee : 0,
-    };
-  }
+  walk(root, 1, 0);
 
-  // Find deepest child path
-  let bestChild = node.children[0];
-  let bestDepth = treeDepth(bestChild);
-  for (const child of node.children.slice(1)) {
-    const d = treeDepth(child);
-    if (d > bestDepth) { bestChild = child; bestDepth = d; }
-  }
+  // Capital-weighted average
+  const totalLeafCapital = leaves.reduce((s, l) => s + l.capital, 0);
+  if (totalLeafCapital <= 0) return { perfFee: 0, mgmtFee: 0 };
 
-  const childResult = deepestPathCompoundFee(bestChild);
-  const myPerf = node.capitalUsd > 0 ? node.perfFee : 0;
-  const myMgmt = node.capitalUsd > 0 ? node.mgmtFee : 0;
+  const weightedPerf = leaves.reduce((s, l) => s + l.compoundPerf * l.capital, 0) / totalLeafCapital;
+  const weightedMgmt = leaves.reduce((s, l) => s + l.additiveMgmt * l.capital, 0) / totalLeafCapital;
 
-  // Compound: 1 - (1-a)(1-b)
-  const compoundPerf = Math.round((1 - (1 - myPerf / 10000) * (1 - childResult.perfFee / 10000)) * 10000);
   return {
-    perfFee: compoundPerf,
-    mgmtFee: myMgmt + childResult.mgmtFee,
+    perfFee: Math.round(weightedPerf * 10000),
+    mgmtFee: Math.round(weightedMgmt * 10000),
   };
 }
 
@@ -171,7 +194,7 @@ export async function getFeeStackAnalysis(): Promise<FeeStackSummary> {
     if (root.children.length === 0) continue;
 
     const maxDepth = treeDepth(root);
-    const { perfFee, mgmtFee } = deepestPathCompoundFee(root);
+    const { perfFee, mgmtFee } = capitalWeightedFee(root);
 
     chains.push({
       root,

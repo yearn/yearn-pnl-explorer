@@ -385,7 +385,7 @@ export function ProfitabilityPanel() {
       <div className="card">
         <div className="filter-bar">
           <h2 style={{ margin: 0 }}>Vault Profitability</h2>
-          <button className="btn-export" onClick={() => exportCSV("vault-profitability.csv", ["Vault", "Chain", "Category", "TVL", "Fee Yield", "Fees (ann.)", "Gains", "Trend", "Quadrant"], sorted.map(v => [v.name || v.address, CHAIN_SHORT[v.chainId as keyof typeof CHAIN_SHORT] || String(v.chainId), v.category, v.tvlUsd, (v.feeYield * 100).toFixed(2) + "%", v.annualizedFeeRevenue, v.totalGainUsd, v.trend, QUADRANT_LABELS[v.quadrant].label]))}>Export CSV</button>
+          <button className="btn-export" onClick={() => exportCSV("vault-profitability.csv", ["Vault", "Chain", "Category", "TVL", "Fee Yield", "Fees (ann.)", "Gains", "Trend"], sorted.map(v => [v.name || v.address, CHAIN_SHORT[v.chainId as keyof typeof CHAIN_SHORT] || String(v.chainId), v.category, v.tvlUsd, (v.feeYield * 100).toFixed(2) + "%", v.annualizedFeeRevenue, v.totalGainUsd, v.trend]))}>Export CSV</button>
           <input
             className="search-input"
             placeholder="Search vaults..."
@@ -423,7 +423,6 @@ export function ProfitabilityPanel() {
               <th className="text-right sortable" onClick={() => handleSort("gains")}>Gains{sortArrow("gains")}</th>
               <th className="sortable" onClick={() => handleSort("trend")}>Trend{sortArrow("trend")}</th>
               <th>Confidence</th>
-              <th>Quadrant</th>
             </tr>
           </thead>
           <tbody>
@@ -466,14 +465,6 @@ export function ProfitabilityPanel() {
                   </span>
                 </td>
                 <td>{confidenceBadge(v.pricingConfidence)}</td>
-                <td>
-                  <span
-                    className="quadrant-tag-sm"
-                    style={{ borderColor: QUADRANT_LABELS[v.quadrant].color, color: QUADRANT_LABELS[v.quadrant].color }}
-                  >
-                    {QUADRANT_LABELS[v.quadrant].label}
-                  </span>
-                </td>
               </tr>
             ))}
           </tbody>

@@ -250,6 +250,7 @@ export function AuditPanel() {
   const [search, setSearch] = useState("");
   const [showOverlapOnly, setShowOverlapOnly] = useState(false);
   const [includeRetired, setIncludeRetired] = useState(false);
+  const [typeFilter, setTypeFilter] = useState("all");
   const debouncedSearch = useDebouncedValue(search);
 
   const url = `/api/audit/tree${chainFilter !== "all" ? `?chainId=${chainFilter}` : ""}`;
@@ -266,6 +267,9 @@ export function AuditPanel() {
     let result = data.vaults;
     if (!includeRetired) result = result.filter((v) => !v.isRetired);
     if (showOverlapOnly) result = result.filter((v) => v.strategies.some((s) => s.targetVaultAddress != null));
+    if (typeFilter === "curation") result = result.filter((v) => v.category === "curation");
+    else if (typeFilter === "allocator") result = result.filter((v) => v.vaultType === 1);
+    else if (typeFilter === "strategy") result = result.filter((v) => v.vaultType === 2);
     if (debouncedSearch) {
       const q = debouncedSearch.toLowerCase();
       result = result.filter((v) =>
@@ -274,7 +278,7 @@ export function AuditPanel() {
       );
     }
     return result;
-  }, [data, debouncedSearch, showOverlapOnly, includeRetired]);
+  }, [data, debouncedSearch, showOverlapOnly, includeRetired, typeFilter]);
 
   const totalOverlapStrategies = useMemo(
     () => data ? data.vaults.reduce((sum, v) => sum + v.strategies.filter((s) => s.targetVaultAddress != null).length, 0) : 0,
@@ -329,6 +333,13 @@ export function AuditPanel() {
           />
           Include retired
         </label>
+
+        <select className="filter-select" value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
+          <option value="all">All types</option>
+          <option value="curation">Curation</option>
+          <option value="allocator">Allocator</option>
+          <option value="strategy">Strategy</option>
+        </select>
 
         <input
           className="search-input"

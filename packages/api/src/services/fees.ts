@@ -187,6 +187,9 @@ export const getVaultFees = async (since?: number): Promise<VaultFeeDetail[]> =>
     .where(eq(vaults.isRetired, false));
 
   // Batch-load all data upfront to avoid N+1 queries
+  // Filter out corrupted timestamps (pre-2020) from Kong data
+  const MIN_VALID_BLOCK_TIME = 1580000000; // 2020-01-26
+  const minTime = since && since > MIN_VALID_BLOCK_TIME ? since : MIN_VALID_BLOCK_TIME;
   const reportQuery = db
     .select({
       vaultId: strategyReports.vaultId,
@@ -196,10 +199,9 @@ export const getVaultFees = async (since?: number): Promise<VaultFeeDetail[]> =>
       firstReport: sql<number>`MIN(${strategyReports.blockTime})`,
       lastReport: sql<number>`MAX(${strategyReports.blockTime})`,
     })
-    .from(strategyReports);
-  const filtered = since
-    ? reportQuery.where(gte(strategyReports.blockTime, since))
-    : reportQuery;
+    .from(strategyReports)
+    .where(gte(strategyReports.blockTime, minTime));
+  const filtered = reportQuery;
   const reportAggs = await filtered.groupBy(strategyReports.vaultId);
   const reportMap = new Map(reportAggs.map((r) => [r.vaultId, r]));
 
@@ -290,6 +292,9 @@ export const getFeeHistory = async (
     ));
   const rateMap = new Map(feeRates.map((r) => [r.vaultId, r.performanceFee || 0]));
 
+  // Yearn launched Feb 2020 — filter out corrupted timestamps (1970s, etc.)
+  const MIN_VALID_BLOCK_TIME = 1580000000; // 2020-01-26
+
   const reports = await db
     .select({
       vaultId: strategyReports.vaultId,
@@ -298,7 +303,7 @@ export const getFeeHistory = async (
       blockTime: strategyReports.blockTime,
     })
     .from(strategyReports)
-    .where(sql`${strategyReports.blockTime} IS NOT NULL`)
+    .where(sql`${strategyReports.blockTime} >= ${MIN_VALID_BLOCK_TIME}`)
     .orderBy(strategyReports.blockTime);
 
   const buckets = reports

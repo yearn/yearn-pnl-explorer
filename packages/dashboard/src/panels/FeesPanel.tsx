@@ -1,6 +1,6 @@
 import { Fragment, useState, useContext, useMemo } from "react";
 import { DashboardContext } from "../App";
-import { useFetch, fmt, useSort, CHAIN_NAMES, CHART_COLORS, SkeletonCards, SkeletonChart, exportCSV, bpsPct } from "../hooks";
+import { useFetch, fmt, useSort, CHAIN_NAMES, CHART_COLORS, SkeletonCards, SkeletonChart, bpsPct } from "../hooks";
 import {
   AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   CartesianGrid, Cell,
@@ -100,7 +100,7 @@ export function FeesPanel() {
   const { data: history, loading: l2 } = useFetch<FeeHistory>("/api/fees/history?interval=monthly");
   const { data: vaultData, loading: l3 } = useFetch<{ count: number; vaults: VaultFee[] }>(`/api/fees/vaults${sinceQ}`);
   const { data: feeStack } = useFetch<FeeStackSummary>("/api/fees/stack");
-  const vaultSort = useSort("totalFeeRevenue");
+  const stackSort = useSort("feeCaptured");
   const [expandedStack, setExpandedStack] = useState<number | null>(null);
 
   // Filter history buckets client-side by time range
@@ -122,19 +122,20 @@ export function FeesPanel() {
     [summary],
   );
 
-  const sortedVaults = useMemo(
-    () =>
-      vaultData
-        ? vaultSort.sorted(vaultData.vaults, {
-            name: (v) => v.name || "", chain: (v) => v.chainId, tvl: (v) => v.tvlUsd,
-            totalFeeRevenue: (v) => v.totalFeeRevenue, perfFees: (v) => v.performanceFeeRevenue, reports: (v) => v.reportCount,
-          })
-        : [],
-    [vaultSort.sortKey, vaultSort.sortDir, vaultData],
-  );
-
-  const top15 = useMemo(() => sortedVaults.slice(0, 15), [sortedVaults]);
-  const maxFee = useMemo(() => Math.max(...top15.map((v) => v.totalFeeRevenue), 1), [top15]);
+  const sortedStacks = useMemo(() => {
+    if (!feeStack) return [];
+    type ChainWithFee = FeeStackChain & { feeCaptured: number };
+    const withFees: ChainWithFee[] = feeStack.chains.map((c) => ({
+      ...c,
+      feeCaptured: c.root.capitalUsd * (c.effectivePerfFee / 10000),
+    }));
+    return stackSort.sorted(withFees, {
+      name: (c) => c.root.vault.name || "",
+      perfFee: (c) => c.root.perfFee,
+      feeCaptured: (c) => c.feeCaptured,
+      effective: (c) => c.effectivePerfFee,
+    });
+  }, [feeStack, stackSort.sortKey, stackSort.sortDir]);
 
   if (l1 || l2 || l3) return <><SkeletonCards count={5} /><SkeletonChart /></>;
   if (!summary || !history || !vaultData) return null;
@@ -246,99 +247,41 @@ export function FeesPanel() {
         </div>
       </div>
 
-      {/* ---- Two-column: Chain Breakdown + Top Vaults ---- */}
-      <div className="row">
-        {/* ---- Fee Revenue by Chain (Horizontal Bar) ---- */}
-        <div className="card">
-          <h2>Fee Revenue by Chain</h2>
-          <div className="chart-container" style={{ height: 280 }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart
-                data={chainRows}
-                layout="vertical"
-                margin={{ top: 4, right: 16, bottom: 4, left: 8 }}
-              >
-                <CartesianGrid stroke="#1f2637" strokeDasharray="3 3" horizontal={false} />
-                <XAxis
-                  type="number"
-                  tick={{ fill: "#5e6673", fontSize: 11 }}
-                  tickFormatter={(v: number) => fmt(v, 0)}
-                />
-                <YAxis
-                  type="category"
-                  dataKey="label"
-                  tick={{ fill: "#848e9c", fontSize: 11 }}
-                  width={80}
-                />
-                <Tooltip
-                  contentStyle={{ background: "#151a23", border: "1px solid #1f2637", borderRadius: 8 }}
-                  labelStyle={{ color: "#eaecef" }}
-                  formatter={(value: number) => [fmt(value, 2), "Fee Revenue"]}
-                  cursor={{ fill: "rgba(46, 230, 182, 0.06)" }}
-                />
-                <Bar dataKey="feeRevenue" radius={[0, 4, 4, 0]} barSize={18}>
-                  {chainRows.map((_, idx) => (
-                    <Cell key={idx} fill={CHART_COLORS[idx % CHART_COLORS.length]} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-
-        {/* ---- Top Earning Vaults ---- */}
-        <div className="card">
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <h2>Top Earning Vaults</h2>
-            <button className="btn-export" onClick={() => exportCSV("vault-fees.csv", ["Vault", "Chain", "TVL", "Total Fees", "Perf Fees", "Reports"], sortedVaults.slice(0, 50).map(v => [v.name || v.address, CHAIN_NAMES[v.chainId] || String(v.chainId), v.tvlUsd, v.totalFeeRevenue, v.performanceFeeRevenue, v.reportCount]))}>Export CSV</button>
-          </div>
-          <div className="table-scroll" style={{ maxHeight: 520, overflowY: "auto" }}>
-            <table className={density === "compact" ? "density-compact" : ""}>
-              <thead>
-                <tr>
-                  <th {...vaultSort.th("name", "Vault")} />
-                  <th {...vaultSort.th("chain", "Chain")} />
-                  <th {...vaultSort.th("tvl", "TVL", "text-right")} />
-                  <th {...vaultSort.th("totalFeeRevenue", "Total Fees", "text-right")} />
-                  <th {...vaultSort.th("perfFees", "Perf Fees", "text-right")} />
-                  <th {...vaultSort.th("reports", "Reports", "text-right")} />
-                </tr>
-              </thead>
-              <tbody>
-                {top15.map((v) => {
-                  const pct = maxFee > 0 ? (v.totalFeeRevenue / maxFee) * 100 : 0;
-                  return (
-                    <tr key={`${v.chainId}:${v.address}`}>
-                      <td>
-                        <span style={{ maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "inline-block" }}>
-                          {v.name?.slice(0, 28) || v.address.slice(0, 10)}
-                        </span>
-                      </td>
-                      <td>
-                        <span className="text-dim" style={{ fontSize: "0.75rem" }}>
-                          {CHAIN_NAMES[v.chainId] || v.chainId}
-                        </span>
-                      </td>
-                      <td className="text-right">{fmt(v.tvlUsd)}</td>
-                      <td className="text-right">
-                        <div className="inline-bar">
-                          <span className="text-green">{fmt(v.totalFeeRevenue)}</span>
-                          <div className="inline-bar-track">
-                            <div
-                              className="inline-bar-fill fill-green"
-                              style={{ width: `${pct}%` }}
-                            />
-                          </div>
-                        </div>
-                      </td>
-                      <td className="text-right text-accent">{fmt(v.performanceFeeRevenue)}</td>
-                      <td className="text-right text-dim">{v.reportCount}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+      {/* ---- Fee Revenue by Chain (Horizontal Bar) ---- */}
+      <div className="card">
+        <h2>Fee Revenue by Chain</h2>
+        <div className="chart-container" style={{ height: 280 }}>
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart
+              data={chainRows}
+              layout="vertical"
+              margin={{ top: 4, right: 16, bottom: 4, left: 8 }}
+            >
+              <CartesianGrid stroke="#1f2637" strokeDasharray="3 3" horizontal={false} />
+              <XAxis
+                type="number"
+                tick={{ fill: "#5e6673", fontSize: 11 }}
+                tickFormatter={(v: number) => fmt(v, 0)}
+              />
+              <YAxis
+                type="category"
+                dataKey="label"
+                tick={{ fill: "#848e9c", fontSize: 11 }}
+                width={80}
+              />
+              <Tooltip
+                contentStyle={{ background: "#151a23", border: "1px solid #1f2637", borderRadius: 8 }}
+                labelStyle={{ color: "#eaecef" }}
+                formatter={(value: number) => [fmt(value, 2), "Fee Revenue"]}
+                cursor={{ fill: "rgba(46, 230, 182, 0.06)" }}
+              />
+              <Bar dataKey="feeRevenue" radius={[0, 4, 4, 0]} barSize={18}>
+                {chainRows.map((_, idx) => (
+                  <Cell key={idx} fill={CHART_COLORS[idx % CHART_COLORS.length]} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
         </div>
       </div>
 
@@ -370,17 +313,17 @@ export function FeesPanel() {
             <table className={density === "compact" ? "density-compact" : ""}>
               <thead>
                 <tr>
-                  <th>Vault</th>
-                  <th className="text-right">Perf Fee</th>
-                  <th className="text-right">Fees Captured</th>
-                  <th className="text-right">Effective</th>
+                  <th {...stackSort.th("name", "Vault")} />
+                  <th {...stackSort.th("perfFee", "Perf Fee", "text-right")} />
+                  <th {...stackSort.th("feeCaptured", "Fees Captured", "text-right")} />
+                  <th {...stackSort.th("effective", "Effective", "text-right")} />
                 </tr>
               </thead>
               <tbody>
-                {feeStack.chains.map((chain, idx) => {
+                {sortedStacks.map((chain, idx) => {
                   const isOpen = expandedStack === idx;
                   const rows = flattenTree(chain.root, 0, true);
-                  const feeCaptured = chain.root.capitalUsd * (chain.effectivePerfFee / 10000);
+                  const feeCaptured = chain.feeCaptured;
                   const barPct = maxCap > 0 ? (chain.root.capitalUsd / maxCap) * 100 : 0;
                   return (
                     <Fragment key={`stack-${idx}`}>

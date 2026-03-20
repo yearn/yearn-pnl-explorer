@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useState, type CSSProperties } from "react";
+import { useEffect, useCallback, useState, useRef, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { fmt, pctFmt, shortAddr, CHAIN_NAMES, EXPLORER_URLS, CAT_COLORS } from "../hooks";
 
@@ -25,9 +25,17 @@ export interface VaultDetail {
   managementFee?: number;
 }
 
+interface DepositorRow {
+  address: string;
+  balanceUsd: number;
+  percentOfVault: number;
+  firstSeen: string | null;
+}
+
 interface VaultDrawerProps {
   vault: VaultDetail | null;
   onClose: () => void;
+  onDepositorClick?: (address: string) => void;
 }
 
 /* ---- Styles ---- */
@@ -231,9 +239,14 @@ function bpsPctLabel(bps: number): string {
   return `${(bps / 100).toFixed(1)}%`;
 }
 
-export function VaultDrawer({ vault, onClose }: VaultDrawerProps) {
+const API_BASE = import.meta.env.VITE_API_URL || "";
+
+export function VaultDrawer({ vault, onClose, onDepositorClick }: VaultDrawerProps) {
   const [copied, setCopied] = useState(false);
   const [visible, setVisible] = useState(false);
+  const [depositorRows, setDepositorRows] = useState<DepositorRow[]>([]);
+  const [depositorLoading, setDepositorLoading] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
 
   // Animate in after mount
   useEffect(() => {
@@ -262,6 +275,35 @@ export function VaultDrawer({ vault, onClose }: VaultDrawerProps) {
       return () => { document.body.style.overflow = ""; };
     }
   }, [vault]);
+
+  // Fetch depositors when drawer opens
+  useEffect(() => {
+    if (!vault) {
+      setDepositorRows([]);
+      return;
+    }
+
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    setDepositorLoading(true);
+    setDepositorRows([]);
+
+    fetch(`${API_BASE}/api/analysis/vault/${vault.chainId}/${vault.address}/depositors?limit=10`, { signal: controller.signal })
+      .then((r) => r.json())
+      .then((d: { depositors?: DepositorRow[] }) => {
+        if (!controller.signal.aborted) {
+          setDepositorRows(d.depositors || []);
+          setDepositorLoading(false);
+        }
+      })
+      .catch((err) => {
+        if (err.name !== "AbortError") setDepositorLoading(false);
+      });
+
+    return () => controller.abort();
+  }, [vault?.address, vault?.chainId]);
 
   const handleCopy = useCallback(() => {
     if (!vault) return;
@@ -485,7 +527,7 @@ export function VaultDrawer({ vault, onClose }: VaultDrawerProps) {
 
         {/* Fee Config */}
         {(vault.performanceFee != null || vault.managementFee != null) && (
-          <div style={styles.sectionLast}>
+          <div style={styles.section}>
             <div style={styles.sectionTitle}>Fee Configuration</div>
 
             {vault.performanceFee != null && (
@@ -503,6 +545,42 @@ export function VaultDrawer({ vault, onClose }: VaultDrawerProps) {
             )}
           </div>
         )}
+
+        {/* Depositors */}
+        <div style={styles.sectionLast}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div style={styles.sectionTitle}>Depositors</div>
+            {vault.chainId === 1 ? null : (
+              <span style={{ fontSize: "0.65rem", color: "var(--text-3)" }}>Ethereum only</span>
+            )}
+          </div>
+          {depositorLoading && <div style={{ color: "var(--text-3)", fontSize: "0.8rem" }}>Loading...</div>}
+          {!depositorLoading && depositorRows.length === 0 && (
+            <div style={{ color: "var(--text-3)", fontSize: "0.8rem" }}>No depositor data</div>
+          )}
+          {depositorRows.length > 0 && (
+            <div style={{ fontSize: "0.8rem" }}>
+              {depositorRows.map((d) => (
+                <div key={d.address} style={styles.detailRow}>
+                  <span
+                    style={{
+                      fontFamily: "monospace",
+                      fontSize: "0.72rem",
+                      color: onDepositorClick ? "var(--accent)" : "var(--text-2)",
+                      cursor: onDepositorClick ? "pointer" : "default",
+                    }}
+                    onClick={() => onDepositorClick?.(d.address)}
+                  >
+                    {shortAddr(d.address)}
+                  </span>
+                  <span style={styles.detailValue}>
+                    {fmt(d.balanceUsd)} <span style={{ color: "var(--text-3)", fontSize: "0.7rem" }}>({d.percentOfVault.toFixed(1)}%)</span>
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     </>
   );

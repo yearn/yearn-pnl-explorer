@@ -1,5 +1,7 @@
-import { useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { useFetch, fmt, useSort, CHAIN_SHORT, CHAIN_NAMES, EXPLORER_URLS, exportCSV, SkeletonCards, SkeletonChart } from "../hooks";
+import { VaultDrawer, type VaultDetail } from "../components/VaultDrawer";
+import { UserDrawer } from "../components/UserDrawer";
 
 interface DeadTvlResult {
   summary: {
@@ -85,6 +87,17 @@ export function AnalysisPanel() {
   const healthSort = useSort("tvl");
   const retiredSort = useSort("tvl");
   const stickySort = useSort("tvl");
+  const [selectedVault, setSelectedVault] = useState<VaultDetail | null>(null);
+  const [selectedUser, setSelectedUser] = useState<string | null>(null);
+
+  const handleVaultClick = useCallback((v: { address: string; chainId: number; name: string | null; tvlUsd: number; category?: string }) => {
+    setSelectedVault({ address: v.address, chainId: v.chainId, name: v.name, category: v.category || "v2", vaultType: null, tvlUsd: v.tvlUsd });
+  }, []);
+
+  const handleDepositorClick = useCallback((addr: string) => {
+    setSelectedVault(null);
+    setSelectedUser(addr);
+  }, []);
 
   // All hooks must be called unconditionally (before any early returns)
   const retiredTvl = useMemo(
@@ -341,7 +354,11 @@ export function AnalysisPanel() {
               </thead>
               <tbody>
                 {sortedSticky.slice(0, 15).map((v) => (
-                  <tr key={`sticky-${v.chainId}:${v.address}`}>
+                  <tr
+                    key={`sticky-${v.chainId}:${v.address}`}
+                    onClick={() => handleVaultClick(v)}
+                    style={{ cursor: "pointer" }}
+                  >
                     <td>
                       <span className="vault-name">
                         {v.name ? v.name.slice(0, 28) : v.address.slice(0, 10)}
@@ -360,6 +377,16 @@ export function AnalysisPanel() {
           </div>
         </div>
       </div>
+
+      <VaultDrawer
+        vault={selectedVault}
+        onClose={() => setSelectedVault(null)}
+        onDepositorClick={handleDepositorClick}
+      />
+      <UserDrawer
+        address={selectedUser}
+        onClose={() => setSelectedUser(null)}
+      />
     </>
   );
 }

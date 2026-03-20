@@ -293,3 +293,131 @@ export const getDepositorBreakdown = async (
     }))
     .sort((a, b) => b.balanceUsd - a.balanceUsd);
 };
+
+// Whitelist of valid sort columns for vault depositors
+const DEPOSITOR_SORT_COLUMNS = {
+  balance: depositors.balance,
+  balanceUsd: depositors.balanceUsd,
+  firstSeen: depositors.firstSeen,
+  lastSeen: depositors.lastSeen,
+} as const;
+
+type DepositorSortKey = keyof typeof DEPOSITOR_SORT_COLUMNS;
+
+interface VaultDepositorsOpts {
+  sort?: string;
+  order?: string;
+  limit?: number;
+}
+
+/** Get paginated depositor list for a vault with safe sorting */
+export const getVaultDepositors = async (
+  address: string,
+  chainId: number,
+  opts: VaultDepositorsOpts = {},
+): Promise<{ depositors: DepositorEntry[]; next: string | null }> => {
+  const sortKey = (opts.sort && opts.sort in DEPOSITOR_SORT_COLUMNS)
+    ? opts.sort as DepositorSortKey
+    : "balanceUsd";
+  const order = opts.order === "asc" ? "asc" : "desc";
+  const limit = Math.min(Math.max(1, opts.limit || 50), 100);
+
+  const [vault] = await db
+    .select({ id: vaults.id })
+    .from(vaults)
+    .where(and(
+      eq(vaults.address, address),
+      eq(vaults.chainId, chainId),
+    ))
+    .limit(1);
+
+  if (!vault) return { depositors: [], next: null };
+
+  const sortCol = DEPOSITOR_SORT_COLUMNS[sortKey];
+  const orderFn = order === "asc" ? sql`ASC` : sql`DESC`;
+
+  const rows = await db
+    .select({
+      address: depositors.address,
+      balanceUsd: depositors.balanceUsd,
+      balance: depositors.balance,
+      firstSeen: depositors.firstSeen,
+      lastSeen: depositors.lastSeen,
+    })
+    .from(depositors)
+    .where(eq(depositors.vaultId, vault.id))
+    .orderBy(order === "asc" ? sql`${sortCol} ASC` : sql`${sortCol} DESC`)
+    .limit(limit + 1); // fetch one extra to detect next page
+
+  const hasMore = rows.length > limit;
+  const pageRows = hasMore ? rows.slice(0, limit) : rows;
+
+  const totalUsd = pageRows.reduce((sum, r) => sum + (r.balanceUsd ?? 0), 0);
+
+  const entries: DepositorEntry[] = pageRows.map((r) => ({
+    address: r.address,
+    balanceUsd: r.balanceUsd ?? 0,
+    balance: r.balance,
+    firstSeen: r.firstSeen,
+    lastSeen: r.lastSeen,
+    percentOfVault: totalUsd > 0
+      ? Math.round(((r.balanceUsd ?? 0) / totalUsd) * 10000) / 100
+      : 0,
+  }));
+
+  return { depositors: entries, next: hasMore ? "true" : null };
+};
+
+interface UserVaultHolding {
+  vaultAddress: string;
+  vaultName: string | null;
+  chainId: number;
+  category: string;
+  balanceUsd: number;
+  balance: string | null;
+  firstSeen: string | null;
+  lastSeen: string | null;
+}
+
+/** Get all vault holdings for a specific user address */
+export const getUserVaults = async (
+  userAddress: string,
+): Promise<{ address: string; totalBalanceUsd: number; holdings: UserVaultHolding[] }> => {
+  // Validate address format: 0x + 40 hex chars
+  if (!/^0x[0-9a-fA-F]{40}$/.test(userAddress)) {
+    return { address: userAddress, totalBalanceUsd: 0, holdings: [] };
+  }
+
+  const rows = await db
+    .select({
+      vaultId: depositors.vaultId,
+      balanceUsd: depositors.balanceUsd,
+      balance: depositors.balance,
+      firstSeen: depositors.firstSeen,
+      lastSeen: depositors.lastSeen,
+      vaultAddress: vaults.address,
+      vaultName: vaults.name,
+      chainId: vaults.chainId,
+      category: vaults.category,
+    })
+    .from(depositors)
+    .innerJoin(vaults, eq(depositors.vaultId, vaults.id))
+    .where(eq(depositors.address, userAddress.toLowerCase()));
+
+  const holdings: UserVaultHolding[] = rows
+    .map((r) => ({
+      vaultAddress: r.vaultAddress,
+      vaultName: r.vaultName,
+      chainId: r.chainId,
+      category: r.category,
+      balanceUsd: r.balanceUsd ?? 0,
+      balance: r.balance,
+      firstSeen: r.firstSeen,
+      lastSeen: r.lastSeen,
+    }))
+    .sort((a, b) => b.balanceUsd - a.balanceUsd);
+
+  const totalBalanceUsd = holdings.reduce((sum, h) => sum + h.balanceUsd, 0);
+
+  return { address: userAddress, totalBalanceUsd, holdings };
+};

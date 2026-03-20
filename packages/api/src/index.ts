@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
+import { rateLimit } from "./middleware/rate-limit.js";
 import { tvl } from "./routes/tvl.js";
 import { comparison } from "./routes/comparison.js";
 import { fees } from "./routes/fees.js";
@@ -11,6 +12,7 @@ const PORT = Number(process.env.PORT) || 3456;
 const app = new Hono();
 
 app.use("/*", cors());
+app.use("/api/*", rateLimit({ windowMs: 60_000, max: 60 }));
 
 app.get("/health", (c) => {
   return c.json({ status: "ok", timestamp: new Date().toISOString() });

@@ -6,6 +6,7 @@
     "dev:api": "bun run --watch packages/api/src/index.ts",
     "dev:dashboard": "bun run --cwd packages/dashboard vite",
     "seed": "bun run scripts/seed.ts",
+    "seed:extra": "bun run fetch:reports && bun run scripts/fetch-v2-fees.ts && bun run fetch:prices && bun run scripts/reprice-reports.ts",
     "fetch:kong": "bun run scripts/fetch-kong.ts",
     "fetch:defillama": "bun run scripts/fetch-defillama.ts",
     "fetch:curation": "bun run scripts/fetch-curation.ts",

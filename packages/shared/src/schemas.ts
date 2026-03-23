@@ -4,40 +4,44 @@
  */
 import { z } from "zod";
 
+/** Coerce null to undefined so .default() kicks in */
+const nullToUndef = <T extends z.ZodTypeAny>(schema: T) =>
+  z.preprocess((v) => (v === null ? undefined : v), schema);
+
 /** Kong REST vault shape */
 export const KongVaultRESTSchema = z.object({
   address: z.string(),
-  name: z.string(),
+  name: nullToUndef(z.string().default("")),
   chainId: z.number(),
-  apiVersion: z.string().optional().default(""),
-  v3: z.boolean().optional().default(false),
-  yearn: z.boolean().optional().default(true),
-  vaultType: z.number().optional().default(0),
-  tvl: z.object({
-    close: z.number().optional().default(0),
-    blockTime: z.string().optional().default(""),
-  }).optional().default(() => ({ close: 0, blockTime: "" })),
-  totalAssets: z.string().optional().default("0"),
-  totalIdle: z.string().optional().default("0"),
-  asset: z.object({
+  apiVersion: nullToUndef(z.string().default("")),
+  v3: nullToUndef(z.boolean().default(false)),
+  yearn: nullToUndef(z.boolean().default(true)),
+  vaultType: nullToUndef(z.number().default(0)),
+  tvl: nullToUndef(z.object({
+    close: nullToUndef(z.number().default(0)),
+    blockTime: nullToUndef(z.string().default("")),
+  }).default(() => ({ close: 0, blockTime: "" }))),
+  totalAssets: nullToUndef(z.string().default("0")),
+  totalIdle: nullToUndef(z.string().default("0")),
+  asset: nullToUndef(z.object({
     address: z.string(),
-    symbol: z.string(),
-    decimals: z.number(),
-  }).optional(),
-  debts: z.array(z.object({
+    symbol: nullToUndef(z.string().default("")),
+    decimals: nullToUndef(z.number().default(18)),
+  })).optional(),
+  debts: nullToUndef(z.array(z.object({
     strategy: z.string(),
-    currentDebt: z.string().optional().default("0"),
-    currentDebtUsd: z.number().optional().default(0),
-    maxDebt: z.string().optional().default("0"),
-  })).optional().default([]),
-  fees: z.object({
-    managementFee: z.number().optional().default(0),
-    performanceFee: z.number().optional().default(0),
-  }).optional().default(() => ({ managementFee: 0, performanceFee: 0 })),
-  meta: z.object({
-    isRetired: z.boolean().optional().default(false),
-  }).optional().default(() => ({ isRetired: false })),
-  strategies: z.array(z.string()).optional().default([]),
+    currentDebt: nullToUndef(z.string().default("0")),
+    currentDebtUsd: nullToUndef(z.number().default(0)),
+    maxDebt: nullToUndef(z.string().default("0")),
+  })).default([])),
+  fees: nullToUndef(z.object({
+    managementFee: nullToUndef(z.number().default(0)),
+    performanceFee: nullToUndef(z.number().default(0)),
+  }).default(() => ({ managementFee: 0, performanceFee: 0 }))),
+  meta: nullToUndef(z.object({
+    isRetired: nullToUndef(z.boolean().default(false)),
+  }).default(() => ({ isRetired: false }))),
+  strategies: nullToUndef(z.array(z.string()).default([])),
 }).passthrough();
 
 export type KongVaultREST = z.infer<typeof KongVaultRESTSchema>;

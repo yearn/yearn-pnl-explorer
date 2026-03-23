@@ -93,11 +93,16 @@ export const getComparison = async (): Promise<DefillamaComparison> => {
   const v2v3DiffPct = v2v3DL > 0 ? Math.abs((v2v3Ours - v2v3DL) / v2v3DL) * 100 : 0;
   const curationDiff = ourTvl.curationTvl + retiredCuration - ccCuration - curationDL;
 
+  const retiredV2 = ourTvl.retiredTvlByCategory.v2 || 0;
+  const v1Tvl = ourTvl.v1Tvl;
+
   const notes = [
     diffPct < 5 && `Total TVL within ${diffPct.toFixed(1)}% of DefiLlama — good alignment.`,
     v2v3DiffPct < 2 && `V2+V3 TVL matches DefiLlama yearn-finance within ${v2v3DiffPct.toFixed(1)}%.`,
     ourTvl.retiredTvl > 1e6 && `$${(ourTvl.retiredTvl / 1e6).toFixed(0)}M in retired vaults included in total (DL counts any vault with on-chain TVL).`,
     ourTvl.overlapAmount > 1e6 && `$${(ourTvl.overlapAmount / 1e6).toFixed(0)}M vault→vault overlap deducted to avoid double-counting.`,
+    retiredV2 > 1e6 && `$${(retiredV2 / 1e6).toFixed(0)}M in retired V2 vaults still holds real on-chain capital (users haven't withdrawn). DL's yearn-finance adapter likely no longer tracks these deprecated vaults, but the funds are verified on-chain.`,
+    v1Tvl > 1e6 && `$${(v1Tvl / 1e6).toFixed(0)}M in V1 legacy vaults not tracked by DL's adapter. Capital verified on-chain.`,
     curationDiff < -5e6 && `Curation gap of $${(Math.abs(curationDiff) / 1e6).toFixed(0)}M — some Morpho vaults not discoverable without archive RPC for factory event scanning.`,
   ].filter((n): n is string => Boolean(n));
 

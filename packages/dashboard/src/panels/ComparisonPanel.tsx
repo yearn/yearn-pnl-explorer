@@ -122,6 +122,17 @@ export function ComparisonPanel() {
       </div>
 
       {/* ── Notes ── */}
+      {data.notes.length > 0 && (
+        <div className="card" style={{ padding: "0.75rem 1rem", marginBottom: "1rem" }}>
+          <h2 style={{ marginBottom: "0.5rem" }}>Notes</h2>
+          <ul style={{ margin: 0, paddingLeft: "1.25rem", display: "flex", flexDirection: "column", gap: "0.35rem" }}>
+            {data.notes.map((note, i) => (
+              <li key={i} className="text-dim" style={{ fontSize: "0.82rem", lineHeight: 1.5 }}>{note}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {/* ── Grouped Bar Chart: Ours vs DL by Chain ── */}
       <div className="card">
         <h2>TVL by Chain: Ours vs DefiLlama</h2>

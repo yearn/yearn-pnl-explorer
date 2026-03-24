@@ -44,9 +44,7 @@ export const CURATION_CHAINS: CurationChainConfig[] = [
   {
     chainId: 747474,
     name: "Katana",
-    factories: [
-      { address: "0x1c8De6889acee12257899BFeAa2b7e534de32E16", fromBlock: 2741420n, version: "v1" },
-    ],
+    factories: [{ address: "0x1c8De6889acee12257899BFeAa2b7e534de32E16", fromBlock: 2741420n, version: "v1" }],
   },
   {
     chainId: 42161,
@@ -59,9 +57,7 @@ export const CURATION_CHAINS: CurationChainConfig[] = [
   {
     chainId: 999,
     name: "Hyperliquid",
-    factories: [
-      { address: "0xec051b19d654C48c357dC974376DeB6272f24e53", fromBlock: 1988677n, version: "v1" },
-    ],
+    factories: [{ address: "0xec051b19d654C48c357dC974376DeB6272f24e53", fromBlock: 1988677n, version: "v1" }],
   },
 ];
 

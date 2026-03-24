@@ -4,10 +4,10 @@
  * When Kong fails to price gains (gainUsd=0 but gain>0), we compute USD
  * using the vault's asset token price (TVL / totalAssets).
  */
-import { db, vaults, vaultSnapshots, strategyReports } from "@yearn-tvl/db";
-import { KONG_API_URL, KongReportRESTSchema, validateArray, retryWithBackoff } from "@yearn-tvl/shared";
+import { db, strategyReports, vaultSnapshots, vaults } from "@yearn-tvl/db";
 import type { KongReportREST } from "@yearn-tvl/shared";
-import { eq, desc } from "drizzle-orm";
+import { KONG_API_URL, KongReportRESTSchema, retryWithBackoff, validateArray } from "@yearn-tvl/shared";
+import { desc, eq } from "drizzle-orm";
 
 type KongVaultReport = KongReportREST;
 
@@ -32,24 +32,27 @@ const REPORTS_QUERY = `
 `;
 
 const fetchVaultReports = async (chainId: number, address: string): Promise<KongVaultReport[]> => {
-  return retryWithBackoff(async () => {
-    const res = await fetch(KONG_API_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        query: REPORTS_QUERY,
-        variables: { chainId, address },
-      }),
-    });
+  return retryWithBackoff(
+    async () => {
+      const res = await fetch(KONG_API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          query: REPORTS_QUERY,
+          variables: { chainId, address },
+        }),
+      });
 
-    if (!res.ok) throw new Error(`Kong API error: ${res.status}`);
-    const json = (await res.json()) as { data?: { vaultReports: unknown[] }; errors?: Array<{ message: string }> };
-    if (json.errors?.length) {
-      console.warn(`  Kong GraphQL errors for ${address}: ${json.errors[0].message}`);
-    }
-    const raw = json.data?.vaultReports || [];
-    return validateArray(raw, KongReportRESTSchema, "KongReport");
-  }, { label: `fetchReports(${address.slice(0, 10)})` });
+      if (!res.ok) throw new Error(`Kong API error: ${res.status}`);
+      const json = (await res.json()) as { data?: { vaultReports: unknown[] }; errors?: Array<{ message: string }> };
+      if (json.errors?.length) {
+        console.warn(`  Kong GraphQL errors for ${address}: ${json.errors[0].message}`);
+      }
+      const raw = json.data?.vaultReports || [];
+      return validateArray(raw, KongReportRESTSchema, "KongReport");
+    },
+    { label: `fetchReports(${address.slice(0, 10)})` },
+  );
 };
 
 const getActiveVaults = async () => {
@@ -144,9 +147,7 @@ export const fetchAndStoreReports = async () => {
       const existingHashes = new Set(existing.map((e) => e.hash));
 
       // Lazily compute token price only if needed (some report has gainUsd=0 but gain>0)
-      const needsRepricing = reports.some(
-        (r) => !existingHashes.has(r.transactionHash) && !(r.gainUsd) && r.gain && r.gain !== "0",
-      );
+      const needsRepricing = reports.some((r) => !existingHashes.has(r.transactionHash) && !r.gainUsd && r.gain && r.gain !== "0");
       const tokenPrice = needsRepricing ? await getTokenPrice(vault.id, decimals) : null;
 
       let newCount = 0;
@@ -187,7 +188,9 @@ export const fetchAndStoreReports = async () => {
       byChain[vault.chainId].gain += vaultGain;
 
       if (newCount > 0) {
-        process.stdout.write(`  ${vault.name?.slice(0, 30) || vault.address.slice(0, 10)}: ${newCount} reports, $${(vaultGain / 1e3).toFixed(1)}K gains\n`);
+        process.stdout.write(
+          `  ${vault.name?.slice(0, 30) || vault.address.slice(0, 10)}: ${newCount} reports, $${(vaultGain / 1e3).toFixed(1)}K gains\n`,
+        );
       }
     } catch (err) {
       console.warn(`  Failed ${vault.address.slice(0, 10)} chain=${vault.chainId}: ${(err as Error).message}`);

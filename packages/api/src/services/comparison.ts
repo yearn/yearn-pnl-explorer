@@ -3,8 +3,9 @@
  * Compares our TVL calculations against DefiLlama's reported figures.
  */
 import { db, defillamaSnapshots } from "@yearn-tvl/db";
-import { eq, desc } from "drizzle-orm";
-import type { DefillamaComparison } from "@yearn-tvl/shared";
+import type { DefillamaComparison, GapComponent } from "@yearn-tvl/shared";
+import { CHAIN_NAMES } from "@yearn-tvl/shared";
+import { desc, eq } from "drizzle-orm";
 import { calculateTvl } from "./tvl.js";
 
 const getLatestDefillamaData = async () => {
@@ -23,10 +24,7 @@ const getLatestDefillamaData = async () => {
       const latestTs = snapshots[0].timestamp;
       const chainTvl = snapshots
         .filter((s) => s.timestamp === latestTs && s.chain)
-        .reduce(
-          (acc, s) => ({ ...acc, [s.chain!]: s.tvlUsd ?? 0 }),
-          {} as Record<string, number>,
-        );
+        .reduce((acc, s) => ({ ...acc, [s.chain!]: s.tvlUsd ?? 0 }), {} as Record<string, number>);
 
       return [protocol, chainTvl] as const;
     }),
@@ -41,7 +39,7 @@ export const getComparison = async (): Promise<DefillamaComparison> => {
 
   const dlFinance = dlData["yearn-finance"] || {};
   const dlCurating = dlData["yearn-curating"] || {};
-  const dlTotal = (dlFinance["total"] || 0) + (dlCurating["total"] || 0);
+  const dlTotal = (dlFinance.total || 0) + (dlCurating.total || 0);
 
   // Per-chain — collect all unique chains from both sources
   // tvlByChain already includes retired vault TVL (matching DL behavior)
@@ -63,13 +61,17 @@ export const getComparison = async (): Promise<DefillamaComparison> => {
     .sort((a, b) => Math.abs(b.difference) - Math.abs(a.difference));
 
   // Per-category — includes retired TVL, deducts both auto/registry overlap AND cross-chain overlap
-  const retiredV1V2V3 = (ourTvl.retiredTvlByCategory.v1 || 0) + (ourTvl.retiredTvlByCategory.v2 || 0) + (ourTvl.retiredTvlByCategory.v3 || 0);
+  const retiredV1V2V3 =
+    (ourTvl.retiredTvlByCategory.v1 || 0) + (ourTvl.retiredTvlByCategory.v2 || 0) + (ourTvl.retiredTvlByCategory.v3 || 0);
   const retiredCuration = ourTvl.retiredTvlByCategory.curation || 0;
-  const ccV1V2V3 = (ourTvl.crossChainOverlapByCategory.v1 || 0) + (ourTvl.crossChainOverlapByCategory.v2 || 0) + (ourTvl.crossChainOverlapByCategory.v3 || 0);
+  const ccV1V2V3 =
+    (ourTvl.crossChainOverlapByCategory.v1 || 0) +
+    (ourTvl.crossChainOverlapByCategory.v2 || 0) +
+    (ourTvl.crossChainOverlapByCategory.v3 || 0);
   const ccCuration = ourTvl.crossChainOverlapByCategory.curation || 0;
   const v2v3Ours = ourTvl.v1Tvl + ourTvl.v2Tvl + ourTvl.v3Tvl + retiredV1V2V3 - ourTvl.overlapAmount - ccV1V2V3;
-  const v2v3DL = dlFinance["total"] || 0;
-  const curationDL = dlCurating["total"] || 0;
+  const v2v3DL = dlFinance.total || 0;
+  const curationDL = dlCurating.total || 0;
 
   const byCategory = [
     {
@@ -99,20 +101,83 @@ export const getComparison = async (): Promise<DefillamaComparison> => {
   const notes = [
     diffPct < 5 && `Total TVL within ${diffPct.toFixed(1)}% of DefiLlama — good alignment.`,
     v2v3DiffPct < 2 && `V2+V3 TVL matches DefiLlama yearn-finance within ${v2v3DiffPct.toFixed(1)}%.`,
-    ourTvl.retiredTvl > 1e6 && `$${(ourTvl.retiredTvl / 1e6).toFixed(0)}M in retired vaults included in total (DL counts any vault with on-chain TVL).`,
+    ourTvl.retiredTvl > 1e6 &&
+      `$${(ourTvl.retiredTvl / 1e6).toFixed(0)}M in retired vaults included in total (DL counts any vault with on-chain TVL).`,
     ourTvl.overlapAmount > 1e6 && `$${(ourTvl.overlapAmount / 1e6).toFixed(0)}M vault→vault overlap deducted to avoid double-counting.`,
-    retiredV2 > 1e6 && `$${(retiredV2 / 1e6).toFixed(0)}M in retired V2 vaults still holds real on-chain capital (users haven't withdrawn). DL's yearn-finance adapter likely no longer tracks these deprecated vaults, but the funds are verified on-chain.`,
+    retiredV2 > 1e6 &&
+      `$${(retiredV2 / 1e6).toFixed(0)}M in retired V2 vaults still holds real on-chain capital (users haven't withdrawn). DL's yearn-finance adapter likely no longer tracks these deprecated vaults, but the funds are verified on-chain.`,
     v1Tvl > 1e6 && `$${(v1Tvl / 1e6).toFixed(0)}M in V1 legacy vaults not tracked by DL's adapter. Capital verified on-chain.`,
-    curationDiff < -5e6 && `Curation gap of $${(Math.abs(curationDiff) / 1e6).toFixed(0)}M — some Morpho vaults not discoverable without archive RPC for factory event scanning.`,
+    curationDiff < -5e6 &&
+      `Curation gap of $${(Math.abs(curationDiff) / 1e6).toFixed(0)}M — some Morpho vaults not discoverable without archive RPC for factory event scanning.`,
   ].filter((n): n is string => Boolean(n));
+
+  // Structured gap components explaining the difference
+  const totalDiff = ourTvl.totalTvl - dlTotal;
+  const gapComponents: GapComponent[] = [];
+
+  if (retiredV2 > 1e5) {
+    gapComponents.push({
+      label: "Retired V2 Vaults",
+      amount: retiredV2,
+      explanation: "Deprecated V2 vaults still holding on-chain capital. DL's adapter likely no longer tracks these.",
+    });
+  }
+  if (v1Tvl > 1e5) {
+    gapComponents.push({
+      label: "V1 Legacy Vaults",
+      amount: v1Tvl,
+      explanation: "Hardcoded V1 vault list not tracked by DL's yearn-finance adapter. Capital verified on-chain.",
+    });
+  }
+  const retiredV3NonCC = (ourTvl.retiredTvlByCategory.v3 || 0) - (ourTvl.crossChainOverlapByCategory.v3 || 0);
+  if (retiredV3NonCC > 1e5) {
+    gapComponents.push({
+      label: "Retired V3 Vaults (non-Katana)",
+      amount: retiredV3NonCC,
+      explanation: "Retired V3 vaults not in the cross-chain registry, still holding on-chain capital.",
+    });
+  }
+  const retiredCurationNonCC = (ourTvl.retiredTvlByCategory.curation || 0) - ccCuration;
+  if (retiredCurationNonCC > 1e5) {
+    gapComponents.push({
+      label: "Retired Curation Vaults",
+      amount: retiredCurationNonCC,
+      explanation: "Retired curation vaults still holding deposits.",
+    });
+  }
+  const explained = gapComponents.reduce((sum, g) => sum + g.amount, 0);
+  const residual = totalDiff - explained;
+  if (Math.abs(residual) > 1e5) {
+    gapComponents.push({
+      label: "Other Differences",
+      amount: residual,
+      explanation: "Remaining difference from pricing discrepancies, timing, or DL adapter coverage.",
+    });
+  }
+
+  // Retired TVL by chain
+  const retiredTvlByChain: Record<string, number> = {};
+  const snapshots = await (await import("./queries.js")).getLatestSnapshots();
+  for (const { vault, snapshot } of snapshots) {
+    if (vault.isRetired) {
+      const chainName = CHAIN_NAMES[vault.chainId] || `Chain ${vault.chainId}`;
+      retiredTvlByChain[chainName] = (retiredTvlByChain[chainName] || 0) + (snapshot.tvlUsd ?? 0);
+    }
+  }
+
+  const grossTvl = ourTvl.activeTvl + ourTvl.retiredTvl;
 
   return {
     ourTotal: ourTvl.totalTvl,
     defillamaTotal: dlTotal,
-    difference: ourTvl.totalTvl - dlTotal,
-    differencePercent: dlTotal > 0 ? ((ourTvl.totalTvl - dlTotal) / dlTotal) * 100 : 0,
+    difference: totalDiff,
+    differencePercent: dlTotal > 0 ? (totalDiff / dlTotal) * 100 : 0,
     retiredTvl: ourTvl.retiredTvl,
     overlapDeducted: ourTvl.overlapAmount,
+    crossChainOverlap: ourTvl.crossChainOverlap,
+    grossTvl,
+    gapComponents,
+    retiredTvlByChain,
     notes,
     byChain,
     byCategory,

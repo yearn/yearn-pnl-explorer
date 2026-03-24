@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 export const API_BASE = import.meta.env.VITE_API_URL || "";
 
@@ -22,34 +22,68 @@ export function useFetch<T>(url: string) {
     if (cached && Date.now() - cached.timestamp < CACHE_TTL) return cached.timestamp;
     return null;
   });
+  const abortRef = useRef<AbortController | null>(null);
+  const [retryCount, setRetryCount] = useState(0);
+
+  const doFetch = useCallback(
+    (bypassCache = false) => {
+      // Abort any in-flight request
+      abortRef.current?.abort();
+      const controller = new AbortController();
+      abortRef.current = controller;
+
+      if (!bypassCache) {
+        const cached = fetchCache.get(url);
+        if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+          setData(cached.data as T);
+          setFetchedAt(cached.timestamp);
+          setLoading(false);
+          setError(null);
+          return;
+        }
+      }
+
+      setLoading(true);
+      fetch(`${API_BASE}${url}`, { signal: controller.signal })
+        .then((r) => {
+          if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+          return r.json();
+        })
+        .then((d) => {
+          if (controller.signal.aborted) return;
+          const now = Date.now();
+          fetchCache.set(url, { data: d, timestamp: now });
+          setData(d);
+          setFetchedAt(now);
+          setError(null);
+        })
+        .catch((e) => {
+          if (e.name === "AbortError") return;
+          setError(e.message);
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) setLoading(false);
+        });
+    },
+    [url],
+  );
 
   useEffect(() => {
-    const cached = fetchCache.get(url);
-    if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-      setData(cached.data as T);
-      setFetchedAt(cached.timestamp);
-      setLoading(false);
-      return;
-    }
+    doFetch();
+    return () => abortRef.current?.abort();
+  }, [doFetch, retryCount]);
 
-    setLoading(true);
-    fetch(`${API_BASE}${url}`)
-      .then((r) => {
-        if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
-        return r.json();
-      })
-      .then((d) => {
-        const now = Date.now();
-        fetchCache.set(url, { data: d, timestamp: now });
-        setData(d);
-        setFetchedAt(now);
-        setError(null);
-      })
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
+  const retry = useCallback(() => {
+    fetchCache.delete(url);
+    setError(null);
+    setRetryCount((c) => c + 1);
   }, [url]);
 
-  return { data, loading, error, fetchedAt };
+  const refresh = useCallback(() => {
+    doFetch(true);
+  }, [doFetch]);
+
+  return { data, loading, error, fetchedAt, retry, refresh };
 }
 
 /** Format USD amount: $1.2B / $340.5M / $12.3K / $999 */
@@ -112,22 +146,31 @@ export const CHAIN_NAMES: Record<number, string> = {
 };
 
 export const CHAIN_SHORT: Record<number, string> = {
-  1: "ETH", 10: "OP", 137: "POLY", 250: "FTM", 42161: "ARB",
-  8453: "BASE", 100: "GNO", 747474: "KAT", 999: "HL", 80094: "BERA", 146: "SONIC",
+  1: "ETH",
+  10: "OP",
+  137: "POLY",
+  250: "FTM",
+  42161: "ARB",
+  8453: "BASE",
+  100: "GNO",
+  747474: "KAT",
+  999: "HL",
+  80094: "BERA",
+  146: "SONIC",
 };
 
 export const CHAIN_COLORS: Record<number, string> = {
-  1: "#627eea",    // Ethereum blue
-  10: "#ff0420",   // Optimism red
-  137: "#8247e5",  // Polygon purple
-  250: "#1969ff",  // Fantom blue
+  1: "#627eea", // Ethereum blue
+  10: "#ff0420", // Optimism red
+  137: "#8247e5", // Polygon purple
+  250: "#1969ff", // Fantom blue
   42161: "#28a0f0", // Arbitrum blue
-  8453: "#0052ff",  // Base blue
-  100: "#04795b",   // Gnosis green
+  8453: "#0052ff", // Base blue
+  100: "#04795b", // Gnosis green
   747474: "#f5a623", // Katana gold
-  999: "#50e3c2",   // Hyperliquid teal
-  80094: "#d4a574",  // Berachain brown
-  146: "#5b21b6",   // Sonic purple
+  999: "#50e3c2", // Hyperliquid teal
+  80094: "#d4a574", // Berachain brown
+  146: "#5b21b6", // Sonic purple
 };
 
 export const EXPLORER_URLS: Record<number, string> = {
@@ -153,11 +196,7 @@ export const CAT_COLORS: Record<string, string> = {
 };
 
 /** Nansen-style chart color palette */
-export const CHART_COLORS = [
-  "#2ee6b6", "#3b82f6", "#f0b90b", "#f6465d",
-  "#a78bfa", "#fb923c", "#848e9c", "#06b6d4",
-  "#ec4899", "#84cc16",
-];
+export const CHART_COLORS = ["#2ee6b6", "#3b82f6", "#f0b90b", "#f6465d", "#a78bfa", "#fb923c", "#848e9c", "#06b6d4", "#ec4899", "#84cc16"];
 
 export function useSort(defaultKey: string, defaultDir: "asc" | "desc" = "desc") {
   const [sortKey, setSortKey] = useState(defaultKey);
@@ -175,7 +214,7 @@ export function useSort(defaultKey: string, defaultDir: "asc" | "desc" = "desc")
   }, []);
 
   const sorted = useCallback(
-    function <T>(items: T[], accessors: Record<string, (item: T) => number | string>): T[] {
+    <T,>(items: T[], accessors: Record<string, (item: T) => number | string>): T[] => {
       const accessor = accessors[sortKey];
       if (!accessor) return items;
       const dir = sortDir === "desc" ? -1 : 1;
@@ -193,6 +232,15 @@ export function useSort(defaultKey: string, defaultDir: "asc" | "desc" = "desc")
     (key: string, label: string, className?: string) => ({
       className: `sortable ${className || ""}`.trim(),
       onClick: () => handleSort(key),
+      role: "columnheader" as const,
+      "aria-sort": (sortKey === key ? (sortDir === "desc" ? "descending" : "ascending") : "none") as "ascending" | "descending" | "none",
+      tabIndex: 0,
+      onKeyDown: (e: React.KeyboardEvent) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          handleSort(key);
+        }
+      },
       children: `${label}${sortKey === key ? (sortDir === "desc" ? " \u25BC" : " \u25B2") : ""}`,
     }),
     [handleSort, sortKey, sortDir],
@@ -213,11 +261,11 @@ export function useDebouncedValue<T>(value: T, delay = 200): T {
 
 /** Export table data as CSV download */
 export function exportCSV(filename: string, headers: string[], rows: (string | number)[][]) {
-  const escape = (v: string | number) => {
+  const csvEscape = (v: string | number) => {
     const s = String(v);
     return s.includes(",") || s.includes('"') || s.includes("\n") ? `"${s.replace(/"/g, '""')}"` : s;
   };
-  const csv = [headers.map(escape).join(","), ...rows.map((r) => r.map(escape).join(","))].join("\n");
+  const csv = [headers.map(csvEscape).join(","), ...rows.map((r) => r.map(csvEscape).join(","))].join("\n");
   const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -249,4 +297,36 @@ export function SkeletonChart() {
       <div className="skeleton skeleton-chart" />
     </div>
   );
+}
+
+/** Reusable pagination hook */
+export function usePagination(totalItems: number, pageSize = 30) {
+  const [page, setPage] = useState(0);
+  const totalPages = Math.ceil(totalItems / pageSize);
+  const start = page * pageSize;
+  const end = start + pageSize;
+
+  // Reset to first page when total changes significantly
+  useEffect(() => {
+    if (page >= totalPages && totalPages > 0) setPage(totalPages - 1);
+  }, [totalPages, page]);
+
+  const Pagination =
+    totalPages <= 1
+      ? null
+      : () => (
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "0.75rem", marginTop: "0.75rem" }}>
+            <button className="page-btn" disabled={page === 0} onClick={() => setPage((p) => p - 1)}>
+              Prev
+            </button>
+            <span className="text-dim" style={{ fontSize: "0.78rem" }}>
+              {start + 1}&ndash;{Math.min(end, totalItems)} of {totalItems}
+            </span>
+            <button className="page-btn" disabled={page >= totalPages - 1} onClick={() => setPage((p) => p + 1)}>
+              Next
+            </button>
+          </div>
+        );
+
+  return { page, start, end, totalPages, setPage, Pagination };
 }

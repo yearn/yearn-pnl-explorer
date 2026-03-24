@@ -3,15 +3,13 @@
  * Kong doesn't return fees for V2 vaults, so fetch-kong.ts uses conservative defaults.
  * This script reads the real managementFee() and performanceFee() values and updates fee_configs.
  */
-import { createPublicClient, http, parseAbi } from "viem";
-import { mainnet, optimism, base, arbitrum, polygon } from "viem/chains";
-import { db, vaults, feeConfigs } from "@yearn-tvl/db";
-import { eq, and } from "drizzle-orm";
 
-const abi = parseAbi([
-  "function managementFee() view returns (uint256)",
-  "function performanceFee() view returns (uint256)",
-]);
+import { db, feeConfigs, vaults } from "@yearn-tvl/db";
+import { and, eq } from "drizzle-orm";
+import { createPublicClient, http, parseAbi } from "viem";
+import { arbitrum, base, mainnet, optimism, polygon } from "viem/chains";
+
+const abi = parseAbi(["function managementFee() view returns (uint256)", "function performanceFee() view returns (uint256)"]);
 
 const chains: Record<number, { chain: any; rpcEnv: string }> = {
   1: { chain: mainnet, rpcEnv: "RPC_URI_FOR_1" },
@@ -74,11 +72,14 @@ export const fetchV2Fees = async () => {
         const now = new Date().toISOString();
         if (existing) {
           if (existing.performanceFee !== perfFee || existing.managementFee !== mgmtFee) {
-            await db.update(feeConfigs).set({
-              performanceFee: perfFee,
-              managementFee: mgmtFee,
-              updatedAt: now,
-            }).where(eq(feeConfigs.id, existing.id));
+            await db
+              .update(feeConfigs)
+              .set({
+                performanceFee: perfFee,
+                managementFee: mgmtFee,
+                updatedAt: now,
+              })
+              .where(eq(feeConfigs.id, existing.id));
             updated++;
           }
         } else {

@@ -14,10 +14,7 @@ export interface HistoricalPriceProvider {
    * Returns Map<lowercase_address, price>.
    * Default implementation calls getPrice() individually.
    */
-  getPrices(
-    timestamp: number,
-    tokens: { chainId: number; address: string }[],
-  ): Promise<Map<string, number>>;
+  getPrices(timestamp: number, tokens: { chainId: number; address: string }[]): Promise<Map<string, number>>;
 }
 
 export const CHAIN_PREFIXES: Record<number, string> = {
@@ -39,9 +36,7 @@ const DL_BASE_URL = "https://coins.llama.fi/prices";
  * Fetch current USD prices for multiple tokens from DefiLlama.
  * Returns Map<lowercase_address, price>.
  */
-export const fetchCurrentPrices = async (
-  tokens: { chainId: number; address: string }[],
-): Promise<Map<string, number>> => {
+export const fetchCurrentPrices = async (tokens: { chainId: number; address: string }[]): Promise<Map<string, number>> => {
   const coinKeys = tokens
     .map((t) => {
       const prefix = CHAIN_PREFIXES[t.chainId];
@@ -81,10 +76,7 @@ export class DefiLlamaPriceProvider implements HistoricalPriceProvider {
     return prices.get(tokenAddress.toLowerCase()) || 0;
   }
 
-  async getPrices(
-    timestamp: number,
-    tokens: { chainId: number; address: string }[],
-  ): Promise<Map<string, number>> {
+  async getPrices(timestamp: number, tokens: { chainId: number; address: string }[]): Promise<Map<string, number>> {
     const coinKeys = tokens
       .map((t) => {
         const prefix = CHAIN_PREFIXES[t.chainId];

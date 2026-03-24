@@ -4,10 +4,10 @@
  * Performance fee revenue = gain × (performanceFee / 10000)
  * Management fee revenue is approximated from TVL × (managementFee / 10000) annualized.
  */
-import { db, vaults, vaultSnapshots, feeConfigs, strategyReports, assetPrices } from "@yearn-tvl/db";
-import { eq, and, sql, gte } from "drizzle-orm";
+import { assetPrices, db, feeConfigs, strategyReports, vaultSnapshots, vaults } from "@yearn-tvl/db";
 import type { VaultCategory } from "@yearn-tvl/shared";
-import { CHAIN_NAMES, toMondayNoon, YEAR_SECONDS, groupBy } from "@yearn-tvl/shared";
+import { CHAIN_NAMES, groupBy, toMondayNoon, YEAR_SECONDS } from "@yearn-tvl/shared";
+import { and, eq, gte, sql } from "drizzle-orm";
 import { latestFeeConfigIds } from "./queries.js";
 
 interface TimeWeightedMgmtFeeInput {
@@ -30,8 +30,7 @@ const computeTimeWeightedMgmtFee = (input: TimeWeightedMgmtFeeInput): number => 
   const { totalAssetsRaw, assetAddress, assetDecimals, chainId, mgmtRate, firstTime, lastTime, latestTvlUsd, pricesByAsset } = input;
   if (mgmtRate <= 0 || lastTime <= firstTime) return 0;
 
-  const simpleFee = () =>
-    latestTvlUsd * (mgmtRate / 10000) * ((lastTime - firstTime) / YEAR_SECONDS);
+  const simpleFee = () => latestTvlUsd * (mgmtRate / 10000) * ((lastTime - firstTime) / YEAR_SECONDS);
 
   if (!assetAddress) return simpleFee();
 
@@ -54,9 +53,7 @@ const computeTimeWeightedMgmtFee = (input: TimeWeightedMgmtFeeInput): number => 
   const totalMgmtFee = weeklyPrices.reduce((sum, wp, i) => {
     const weeklyTvl = totalAssetsNorm * wp.price;
     const segStart = Math.max(wp.ts, firstTime);
-    const segEnd = i < weeklyPrices.length - 1
-      ? Math.min(weeklyPrices[i + 1].ts, lastTime)
-      : lastTime;
+    const segEnd = i < weeklyPrices.length - 1 ? Math.min(weeklyPrices[i + 1].ts, lastTime) : lastTime;
     return sum + weeklyTvl * (mgmtRate / 10000) * (Math.max(0, segEnd - segStart) / YEAR_SECONDS);
   }, 0);
 
@@ -66,13 +63,21 @@ const computeTimeWeightedMgmtFee = (input: TimeWeightedMgmtFeeInput): number => 
 /** Load all asset prices into memory, grouped by chainId:address, sorted by timestamp */
 const loadPricesByAsset = async (): Promise<Map<string, { ts: number; price: number }[]>> => {
   const rows = await db
-    .select({ chainId: assetPrices.chainId, address: assetPrices.address, priceUsd: assetPrices.priceUsd, timestamp: assetPrices.timestamp })
+    .select({
+      chainId: assetPrices.chainId,
+      address: assetPrices.address,
+      priceUsd: assetPrices.priceUsd,
+      timestamp: assetPrices.timestamp,
+    })
     .from(assetPrices);
 
   const grouped = groupBy(rows, (r) => `${r.chainId}:${r.address}`);
   const map = new Map<string, { ts: number; price: number }[]>();
   for (const [key, entries] of grouped) {
-    map.set(key, entries.map((r) => ({ ts: r.timestamp, price: r.priceUsd })).sort((a, b) => a.ts - b.ts));
+    map.set(
+      key,
+      entries.map((r) => ({ ts: r.timestamp, price: r.priceUsd })).sort((a, b) => a.ts - b.ts),
+    );
   }
   return map;
 };
@@ -87,9 +92,7 @@ const loadLatestSnapshots = async (): Promise<Map<number, { tvlUsd: number; tota
       id: vaultSnapshots.id,
     })
     .from(vaultSnapshots)
-    .where(
-      sql`${vaultSnapshots.id} IN (SELECT MAX(id) FROM ${vaultSnapshots} GROUP BY ${vaultSnapshots.vaultId})`,
-    );
+    .where(sql`${vaultSnapshots.id} IN (SELECT MAX(id) FROM ${vaultSnapshots} GROUP BY ${vaultSnapshots.vaultId})`);
 
   return new Map(rows.map((r) => [r.vaultId, { tvlUsd: r.tvlUsd || 0, totalAssets: r.totalAssets }]));
 };
@@ -124,8 +127,8 @@ interface FeeSummary {
 }
 
 /** Get fee summary across all active vaults */
-export const getFeeSummary = async (since?: number): Promise<FeeSummary> => {
-  const vaultFees = await getVaultFees(since);
+export const getFeeSummary = async (since?: number, chainId?: number): Promise<FeeSummary> => {
+  const vaultFees = await getVaultFees(since, chainId);
 
   const totals = vaultFees.reduce(
     (acc, v) => ({
@@ -146,14 +149,20 @@ export const getFeeSummary = async (since?: number): Promise<FeeSummary> => {
     vaultCount: acc.vaultCount + 1,
   });
 
-  const byChain = vaultFees.reduce((acc, v) => {
-    const chainName = CHAIN_NAMES[v.chainId] || `Chain ${v.chainId}`;
-    return { ...acc, [chainName]: accumulate(acc[chainName] ?? init(), v) };
-  }, {} as Record<string, ReturnType<typeof init>>);
+  const byChain = vaultFees.reduce(
+    (acc, v) => {
+      const chainName = CHAIN_NAMES[v.chainId] || `Chain ${v.chainId}`;
+      return { ...acc, [chainName]: accumulate(acc[chainName] ?? init(), v) };
+    },
+    {} as Record<string, ReturnType<typeof init>>,
+  );
 
-  const byCategory = vaultFees.reduce((acc, v) => {
-    return { ...acc, [v.category]: accumulate(acc[v.category] ?? init(), v) };
-  }, {} as Record<string, ReturnType<typeof init>>);
+  const byCategory = vaultFees.reduce(
+    (acc, v) => {
+      return { ...acc, [v.category]: accumulate(acc[v.category] ?? init(), v) };
+    },
+    {} as Record<string, ReturnType<typeof init>>,
+  );
 
   return {
     ...totals,
@@ -164,8 +173,10 @@ export const getFeeSummary = async (since?: number): Promise<FeeSummary> => {
 };
 
 /** Get per-vault fee breakdown */
-export const getVaultFees = async (since?: number): Promise<VaultFeeDetail[]> => {
+export const getVaultFees = async (since?: number, chainId?: number): Promise<VaultFeeDetail[]> => {
   const latestFees = latestFeeConfigIds();
+  const conditions = [eq(vaults.isRetired, false)];
+  if (chainId) conditions.push(eq(vaults.chainId, chainId));
   const vaultRows = await db
     .select({
       id: vaults.id,
@@ -180,11 +191,8 @@ export const getVaultFees = async (since?: number): Promise<VaultFeeDetail[]> =>
     })
     .from(vaults)
     .innerJoin(feeConfigs, eq(feeConfigs.vaultId, vaults.id))
-    .innerJoin(latestFees, and(
-      eq(feeConfigs.vaultId, latestFees.vaultId),
-      eq(feeConfigs.id, latestFees.maxId),
-    ))
-    .where(eq(vaults.isRetired, false));
+    .innerJoin(latestFees, and(eq(feeConfigs.vaultId, latestFees.vaultId), eq(feeConfigs.id, latestFees.maxId)))
+    .where(and(...conditions));
 
   // Batch-load all data upfront to avoid N+1 queries
   // Filter out corrupted timestamps (pre-2020) from Kong data
@@ -205,10 +213,7 @@ export const getVaultFees = async (since?: number): Promise<VaultFeeDetail[]> =>
   const reportAggs = await filtered.groupBy(strategyReports.vaultId);
   const reportMap = new Map(reportAggs.map((r) => [r.vaultId, r]));
 
-  const [snapshots, pricesByAsset] = await Promise.all([
-    loadLatestSnapshots(),
-    loadPricesByAsset(),
-  ]);
+  const [snapshots, pricesByAsset] = await Promise.all([loadLatestSnapshots(), loadPricesByAsset()]);
 
   const results: VaultFeeDetail[] = [];
 
@@ -228,14 +233,20 @@ export const getVaultFees = async (since?: number): Promise<VaultFeeDetail[]> =>
     const firstTime = agg?.firstReport || 0;
     const lastTime = agg?.lastReport || 0;
 
-    const mgmtRevenue = mgmtFee > 0 && tvlUsd > 0 && count > 0 && lastTime > firstTime
-      ? computeTimeWeightedMgmtFee({
-          totalAssetsRaw: snapshot?.totalAssets ?? null,
-          assetAddress: vault.assetAddress, assetDecimals: vault.assetDecimals || 18,
-          chainId: vault.chainId, mgmtRate: mgmtFee, firstTime, lastTime,
-          latestTvlUsd: tvlUsd, pricesByAsset,
-        })
-      : 0;
+    const mgmtRevenue =
+      mgmtFee > 0 && tvlUsd > 0 && count > 0 && lastTime > firstTime
+        ? computeTimeWeightedMgmtFee({
+            totalAssetsRaw: snapshot?.totalAssets ?? null,
+            assetAddress: vault.assetAddress,
+            assetDecimals: vault.assetDecimals || 18,
+            chainId: vault.chainId,
+            mgmtRate: mgmtFee,
+            firstTime,
+            lastTime,
+            latestTvlUsd: tvlUsd,
+            pricesByAsset,
+          })
+        : 0;
 
     if (count === 0 && perfFee === 0 && mgmtFee === 0) continue;
 
@@ -253,9 +264,7 @@ export const getVaultFees = async (since?: number): Promise<VaultFeeDetail[]> =>
       managementFeeRevenue: mgmtRevenue,
       totalFeeRevenue: perfRevenue + mgmtRevenue,
       reportCount: count,
-      lastReportTime: agg?.lastReport
-        ? new Date(agg.lastReport * 1000).toISOString()
-        : null,
+      lastReportTime: agg?.lastReport ? new Date(agg.lastReport * 1000).toISOString() : null,
     });
   }
 
@@ -279,17 +288,12 @@ const getPeriodKey = (blockTime: number, interval: "weekly" | "monthly"): string
 };
 
 /** Get fee revenue bucketed by time period (weekly or monthly) */
-export const getFeeHistory = async (
-  interval: "weekly" | "monthly" = "monthly",
-): Promise<FeeHistoryBucket[]> => {
+export const getFeeHistory = async (interval: "weekly" | "monthly" = "monthly"): Promise<FeeHistoryBucket[]> => {
   const latestFees = latestFeeConfigIds();
   const feeRates = await db
     .select({ vaultId: feeConfigs.vaultId, performanceFee: feeConfigs.performanceFee })
     .from(feeConfigs)
-    .innerJoin(latestFees, and(
-      eq(feeConfigs.vaultId, latestFees.vaultId),
-      eq(feeConfigs.id, latestFees.maxId),
-    ));
+    .innerJoin(latestFees, and(eq(feeConfigs.vaultId, latestFees.vaultId), eq(feeConfigs.id, latestFees.maxId)));
   const rateMap = new Map(feeRates.map((r) => [r.vaultId, r.performanceFee || 0]));
 
   // Yearn launched Feb 2020 — filter out corrupted timestamps (1970s, etc.)

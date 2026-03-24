@@ -1,9 +1,6 @@
 export const KONG_API_URL = "https://kong.yearn.fi/api/gql";
 
-export const DEFILLAMA_PROTOCOLS = [
-  "yearn-finance",
-  "yearn-curating",
-] as const;
+export const DEFILLAMA_PROTOCOLS = ["yearn-finance", "yearn-curating"] as const;
 
 export const CHAIN_NAMES: Record<number, string> = {
   1: "Ethereum",
@@ -64,10 +61,10 @@ export const IGNORED_VAULTS: Array<{ address: string; chainId: number }> = [
   { address: "0x39546945695DCb1c037C836925B355262f551f55", chainId: 1 },
   { address: "0x58900d761Ae3765B75DDFc235c1536B527F25d8F", chainId: 1 },
   // Borked/rekt vaults (from yearn-exporter)
-  { address: "0x718AbE90777F5B778B52D553a5aBaa148DD0dc5D", chainId: 1 },  // vyper exploit
-  { address: "0xc5F3D11580c41cD07104e9AF154Fc6428bb93c73", chainId: 1 },  // price borked
-  { address: "0x4213458C69c19E6792510E1153cb0c5834665fdC", chainId: 1 },  // price borked
-  { address: "0x8a0889d47f9Aa0Fac1cC718ba34E26b867437880", chainId: 1 },  // rekt st-yCRV
-  { address: "0x61f46C65E403429266e8b569F23f70dD75d9BeE7", chainId: 1 },  // rekt lp-yCRV
+  { address: "0x718AbE90777F5B778B52D553a5aBaa148DD0dc5D", chainId: 1 }, // vyper exploit
+  { address: "0xc5F3D11580c41cD07104e9AF154Fc6428bb93c73", chainId: 1 }, // price borked
+  { address: "0x4213458C69c19E6792510E1153cb0c5834665fdC", chainId: 1 }, // price borked
+  { address: "0x8a0889d47f9Aa0Fac1cC718ba34E26b867437880", chainId: 1 }, // rekt st-yCRV
+  { address: "0x61f46C65E403429266e8b569F23f70dD75d9BeE7", chainId: 1 }, // rekt lp-yCRV
   { address: "0x9E724b3f65b509326A4F5Ec90D4689BeE6b6C78e", chainId: 10 }, // rekt ERN-USDC
 ];

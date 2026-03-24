@@ -4,6 +4,7 @@ export * from "./curation.js";
 export * from "./fetch.js";
 export * from "./pricing.js";
 export * from "./schemas.js";
+export * from "./stickiness.js";
 export * from "./strategy-overlaps.js";
 export * from "./time.js";
 export * from "./types.js";

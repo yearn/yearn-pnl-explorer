@@ -1,20 +1,25 @@
 import { Hono } from "hono";
-import { getFeeSummary, getVaultFees, getFeeHistory } from "../services/fees.js";
-import { getFeeStackAnalysis } from "../services/fee-stack.js";
 import { rateLimit } from "../middleware/rate-limit.js";
+import { getFeeStackAnalysis } from "../services/fee-stack.js";
+import { getFeeHistory, getFeeSummary, getVaultFees } from "../services/fees.js";
 
 const fees = new Hono();
 
 fees.get("/", async (c) => {
   const since = c.req.query("since") ? Number(c.req.query("since")) : undefined;
-  const summary = await getFeeSummary(since);
+  const chainId = c.req.query("chainId") ? Number(c.req.query("chainId")) : undefined;
+  const summary = await getFeeSummary(since, chainId);
   return c.json(summary);
 });
 
 fees.get("/vaults", async (c) => {
   const since = c.req.query("since") ? Number(c.req.query("since")) : undefined;
-  const vaultFees = await getVaultFees(since);
-  return c.json({ count: vaultFees.length, vaults: vaultFees });
+  const chainId = c.req.query("chainId") ? Number(c.req.query("chainId")) : undefined;
+  const limit = c.req.query("limit") ? Math.min(Number(c.req.query("limit")), 500) : undefined;
+  const offset = c.req.query("offset") ? Number(c.req.query("offset")) : 0;
+  const vaultFees = await getVaultFees(since, chainId);
+  const paged = limit ? vaultFees.slice(offset, offset + limit) : vaultFees;
+  return c.json({ count: vaultFees.length, offset, vaults: paged });
 });
 
 fees.get("/history", async (c) => {

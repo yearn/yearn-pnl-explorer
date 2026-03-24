@@ -4,25 +4,25 @@
  * Includes retired vault TVL in totals (matching DefiLlama behavior — DL counts
  * any vault with positive on-chain TVL regardless of retirement status).
  */
-import { db, vaults, strategies, strategyDebts } from "@yearn-tvl/db";
-import { eq, and, sql } from "drizzle-orm";
-import type { TvlSummary, VaultTvl, OverlapDetail, VaultCategory } from "@yearn-tvl/shared";
-import { CHAIN_NAMES, STRATEGY_OVERLAP_REGISTRY, CROSS_CHAIN_OVERLAP_REGISTRY, groupBy, toMap } from "@yearn-tvl/shared";
+import { db, strategies, strategyDebts, vaults } from "@yearn-tvl/db";
+import type { OverlapDetail, TvlSummary, VaultCategory, VaultTvl } from "@yearn-tvl/shared";
+import { CHAIN_NAMES, CROSS_CHAIN_OVERLAP_REGISTRY, groupBy, STRATEGY_OVERLAP_REGISTRY, toMap } from "@yearn-tvl/shared";
+import { and, eq, sql } from "drizzle-orm";
 import { getLatestSnapshots } from "./queries.js";
 
 /** Detect vault→vault overlap (auto + registry-based) */
 export const computeOverlap = async (): Promise<OverlapDetail[]> => {
-  const allVaults = await db.select({
-    id: vaults.id,
-    address: vaults.address,
-    chainId: vaults.chainId,
-    category: vaults.category,
-    isRetired: vaults.isRetired,
-  }).from(vaults);
+  const allVaults = await db
+    .select({
+      id: vaults.id,
+      address: vaults.address,
+      chainId: vaults.chainId,
+      category: vaults.category,
+      isRetired: vaults.isRetired,
+    })
+    .from(vaults);
 
-  const vaultByAddress = new Map(
-    allVaults.map((v) => [`${v.chainId}:${v.address.toLowerCase()}`, v]),
-  );
+  const vaultByAddress = new Map(allVaults.map((v) => [`${v.chainId}:${v.address.toLowerCase()}`, v]));
 
   // Preload all strategies and group by vault
   const allStrategies = await db.select().from(strategies);
@@ -44,11 +44,12 @@ export const computeOverlap = async (): Promise<OverlapDetail[]> => {
       currentDebtUsd: strategyDebts.currentDebtUsd,
     })
     .from(strategyDebts)
-    .innerJoin(latestDebtSub, and(
-      eq(strategyDebts.strategyId, latestDebtSub.strategyId),
-      eq(strategyDebts.id, latestDebtSub.maxId),
-    ));
-  const debtByStrategy = toMap(allDebts, (d) => d.strategyId, (d) => d.currentDebtUsd);
+    .innerJoin(latestDebtSub, and(eq(strategyDebts.strategyId, latestDebtSub.strategyId), eq(strategyDebts.id, latestDebtSub.maxId)));
+  const debtByStrategy = toMap(
+    allDebts,
+    (d) => d.strategyId,
+    (d) => d.currentDebtUsd,
+  );
 
   // Index strategies by chainId:address for registry lookups
   const strategyByAddr = toMap(allStrategies, (s) => `${s.chainId}:${s.address.toLowerCase()}`);
@@ -139,9 +140,7 @@ export const calculateTvl = async (): Promise<TvlSummary> => {
         ...acc.vaultCount,
         total: acc.vaultCount.total + 1,
         [cat]: acc.vaultCount[cat] + 1,
-        ...(vault.isRetired
-          ? { retired: acc.vaultCount.retired + 1 }
-          : { active: acc.vaultCount.active + 1 }),
+        ...(vault.isRetired ? { retired: acc.vaultCount.retired + 1 } : { active: acc.vaultCount.active + 1 }),
       };
 
       // Include ALL vaults in tvlByChain (active + retired).
@@ -178,11 +177,9 @@ export const calculateTvl = async (): Promise<TvlSummary> => {
 
   // Cross-chain overlap: retired vaults whose capital migrated to another chain.
   // Deduct their TVL to avoid double-counting with the destination vaults.
-  const crossChainAddresses = new Set(
-    CROSS_CHAIN_OVERLAP_REGISTRY.map((e) => `${e.sourceChainId}:${e.sourceVaultAddress.toLowerCase()}`),
-  );
-  const crossChainVaults = snapshots.filter(({ vault }) =>
-    vault.isRetired && crossChainAddresses.has(`${vault.chainId}:${vault.address.toLowerCase()}`),
+  const crossChainAddresses = new Set(CROSS_CHAIN_OVERLAP_REGISTRY.map((e) => `${e.sourceChainId}:${e.sourceVaultAddress.toLowerCase()}`));
+  const crossChainVaults = snapshots.filter(
+    ({ vault }) => vault.isRetired && crossChainAddresses.has(`${vault.chainId}:${vault.address.toLowerCase()}`),
   );
   const crossChainOverlapByCategory = crossChainVaults.reduce(
     (acc, { vault, snapshot }) => {

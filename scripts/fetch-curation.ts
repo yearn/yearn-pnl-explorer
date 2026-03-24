@@ -7,11 +7,12 @@
  * For vaults discovered on-chain without USD pricing, falls back to DefiLlama
  * current token prices, then stablecoin assumptions.
  */
-import { createPublicClient, http, formatUnits, getAddress, parseAbiItem, type PublicClient, type Address, type Chain } from "viem";
-import { mainnet, base, arbitrum } from "viem/chains";
-import { db, vaults, vaultSnapshots } from "@yearn-tvl/db";
-import { eq, and, desc } from "drizzle-orm";
-import { YEARN_CURATOR_OWNERS, TURTLE_CLUB_VAULTS, CURATION_CHAINS, CHAIN_PREFIXES } from "@yearn-tvl/shared";
+
+import { db, vaultSnapshots, vaults } from "@yearn-tvl/db";
+import { CHAIN_PREFIXES, CURATION_CHAINS, TURTLE_CLUB_VAULTS, YEARN_CURATOR_OWNERS } from "@yearn-tvl/shared";
+import { and, desc, eq } from "drizzle-orm";
+import { type Address, type Chain, createPublicClient, formatUnits, getAddress, http, type PublicClient, parseAbiItem } from "viem";
+import { arbitrum, base, mainnet } from "viem/chains";
 
 const MORPHO_API = "https://blue-api.morpho.org/graphql";
 
@@ -39,18 +40,16 @@ const ERC20_ABI = [
   { name: "decimals", type: "function", inputs: [], outputs: [{ type: "uint8" }], stateMutability: "view" },
 ] as const;
 
-const OWNER_ABI = [
-  { name: "owner", type: "function", inputs: [], outputs: [{ type: "address" }], stateMutability: "view" },
-] as const;
+const OWNER_ABI = [{ name: "owner", type: "function", inputs: [], outputs: [{ type: "address" }], stateMutability: "view" }] as const;
 
 // MetaMorpho V1 factory event
 const CREATE_META_MORPHO_V1 = parseAbiItem(
-  "event CreateMetaMorpho(address indexed metaMorpho, address indexed caller, address initialOwner, uint256 initialTimelock, address asset, string name, string symbol, bytes32 salt)"
+  "event CreateMetaMorpho(address indexed metaMorpho, address indexed caller, address initialOwner, uint256 initialTimelock, address asset, string name, string symbol, bytes32 salt)",
 );
 
 // MetaMorpho V2 factory event (different event name)
 const CREATE_META_MORPHO_V2 = parseAbiItem(
-  "event CreateMetaMorphoV2(address indexed metaMorpho, address indexed caller, address initialOwner, uint256 initialTimelock, address asset, string name, string symbol, bytes32 salt)"
+  "event CreateMetaMorphoV2(address indexed metaMorpho, address indexed caller, address initialOwner, uint256 initialTimelock, address asset, string name, string symbol, bytes32 salt)",
 );
 
 // Custom chain definitions for chains not in viem/chains
@@ -287,7 +286,7 @@ const priceVaultsViaDeFiLlama = async (vaultList: MorphoVault[]): Promise<void> 
       const totalAssets = BigInt(vault.state.totalAssets || "0");
       if (totalAssets === 0n) continue;
 
-      vault.state.totalAssetsUsd = Number(totalAssets) / 10 ** vault.asset.decimals * priceInfo.price;
+      vault.state.totalAssetsUsd = (Number(totalAssets) / 10 ** vault.asset.decimals) * priceInfo.price;
     }
   } catch {
     console.warn("  Failed to fetch fallback prices from DefiLlama");
@@ -306,7 +305,7 @@ const persistCurationVault = async (mv: MorphoVault) => {
   });
 
   const vaultId = existing
-    ? (await db
+    ? await db
         .update(vaults)
         .set({
           name: mv.name,
@@ -318,39 +317,43 @@ const persistCurationVault = async (mv: MorphoVault) => {
           updatedAt: now,
         })
         .where(eq(vaults.id, existing.id))
-        .then(() => existing.id))
-    : (await db
-        .insert(vaults)
-        .values({
-          address,
-          chainId,
-          name: mv.name,
-          v3: false,
-          yearn: true,
-          category: "curation",
-          source: "onchain",
-          assetAddress: mv.asset.address,
-          assetSymbol: mv.asset.symbol,
-          assetDecimals: mv.asset.decimals,
-          createdAt: now,
-          updatedAt: now,
-        })
-        .returning({ id: vaults.id }))[0].id;
+        .then(() => existing.id)
+    : (
+        await db
+          .insert(vaults)
+          .values({
+            address,
+            chainId,
+            name: mv.name,
+            v3: false,
+            yearn: true,
+            category: "curation",
+            source: "onchain",
+            assetAddress: mv.asset.address,
+            assetSymbol: mv.asset.symbol,
+            assetDecimals: mv.asset.decimals,
+            createdAt: now,
+            updatedAt: now,
+          })
+          .returning({ id: vaults.id })
+      )[0].id;
 
   // Use Morpho API USD price if available, else fall back to existing snapshot or stablecoin approximation
-  const tvlUsd = mv.state.totalAssetsUsd ?? await (async () => {
-    const lastSnapshot = await db.query.vaultSnapshots.findFirst({
-      where: eq(vaultSnapshots.vaultId, vaultId),
-      orderBy: [desc(vaultSnapshots.id)],
-    });
-    if (lastSnapshot?.tvlUsd) return lastSnapshot.tvlUsd;
+  const tvlUsd =
+    mv.state.totalAssetsUsd ??
+    (await (async () => {
+      const lastSnapshot = await db.query.vaultSnapshots.findFirst({
+        where: eq(vaultSnapshots.vaultId, vaultId),
+        orderBy: [desc(vaultSnapshots.id)],
+      });
+      if (lastSnapshot?.tvlUsd) return lastSnapshot.tvlUsd;
 
-    const stablecoins = ["USDC", "USDT", "DAI", "FRAX", "LUSD"];
-    if (stablecoins.includes(mv.asset.symbol)) {
-      return Number(formatUnits(BigInt(mv.state.totalAssets), mv.asset.decimals));
-    }
-    return null;
-  })();
+      const stablecoins = ["USDC", "USDT", "DAI", "FRAX", "LUSD"];
+      if (stablecoins.includes(mv.asset.symbol)) {
+        return Number(formatUnits(BigInt(mv.state.totalAssets), mv.asset.decimals));
+      }
+      return null;
+    })());
 
   await db.insert(vaultSnapshots).values({
     vaultId,

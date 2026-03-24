@@ -8,9 +8,9 @@
  *
  * Run fetch-historical-prices.ts first to populate the cache for best results.
  */
-import { db, vaults, vaultSnapshots, strategyReports, assetPrices } from "@yearn-tvl/db";
-import { eq, and, desc, sql, isNotNull } from "drizzle-orm";
-import { WEEK_SECONDS, MIN_BLOCK_TIMESTAMP } from "@yearn-tvl/shared";
+import { assetPrices, db, strategyReports, vaultSnapshots, vaults } from "@yearn-tvl/db";
+import { MIN_BLOCK_TIMESTAMP, WEEK_SECONDS } from "@yearn-tvl/shared";
+import { and, desc, eq, isNotNull, sql } from "drizzle-orm";
 
 const MAX_GAIN_PER_REPORT = 500_000;
 const TX_BATCH_SIZE = 2000;
@@ -41,10 +41,7 @@ const buildPriceCache = async (): Promise<Map<string, { ts: number; price: numbe
 };
 
 /** Find nearest price in a sorted array within ±1 week via binary search */
-const findNearestPrice = (
-  prices: { ts: number; price: number }[],
-  timestamp: number,
-): number => {
+const findNearestPrice = (prices: { ts: number; price: number }[], timestamp: number): number => {
   if (prices.length === 0) return 0;
 
   let lo = 0;
@@ -139,7 +136,10 @@ export const repriceReports = async () => {
 
   for (const r of reports) {
     const info = vaultInfoCache.get(r.vaultId);
-    if (!info || !r.gain) { skipped++; continue; }
+    if (!info || !r.gain) {
+      skipped++;
+      continue;
+    }
 
     const cacheKey = `${info.chainId}:${info.assetAddress.toLowerCase()}`;
     const prices = priceCache.get(cacheKey);
@@ -154,7 +154,10 @@ export const repriceReports = async () => {
       source = price > 0 ? "snapshot" : null;
     }
 
-    if (!price || price === 0) { failed++; continue; }
+    if (!price || price === 0) {
+      failed++;
+      continue;
+    }
 
     let newGainUsd = rawToUsd(r.gain, info.assetDecimals, price);
     if (newGainUsd > MAX_GAIN_PER_REPORT) newGainUsd = 0;
@@ -169,9 +172,7 @@ export const repriceReports = async () => {
     const batch = pending.slice(start, start + TX_BATCH_SIZE);
     await db.transaction(async (tx) => {
       for (const p of batch) {
-        await tx.update(strategyReports)
-          .set({ gainUsd: p.gainUsd, pricingSource: p.source })
-          .where(eq(strategyReports.id, p.id));
+        await tx.update(strategyReports).set({ gainUsd: p.gainUsd, pricingSource: p.source }).where(eq(strategyReports.id, p.id));
       }
     });
     updated += batch.length;

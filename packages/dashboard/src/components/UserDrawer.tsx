@@ -1,6 +1,6 @@
-import { useEffect, useState, useRef, type CSSProperties } from "react";
+import { type CSSProperties, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { fmt, shortAddr, CHAIN_NAMES, API_BASE } from "../hooks";
+import { API_BASE, CHAIN_NAMES, fmt, shortAddr } from "../hooks";
 
 interface UserVaultHolding {
   vaultAddress: string;
@@ -130,7 +130,9 @@ export function UserDrawer({ address, onClose }: UserDrawerProps) {
   useEffect(() => {
     if (address) {
       document.body.style.overflow = "hidden";
-      return () => { document.body.style.overflow = ""; };
+      return () => {
+        document.body.style.overflow = "";
+      };
     }
   }, [address]);
 
@@ -138,20 +140,17 @@ export function UserDrawer({ address, onClose }: UserDrawerProps) {
 
   const content = (
     <>
-      <div
-        style={{ ...styles.backdrop, opacity: visible ? 1 : 0, pointerEvents: visible ? "auto" : "none" }}
-        onClick={onClose}
-      />
+      <div style={{ ...styles.backdrop, opacity: visible ? 1 : 0, pointerEvents: visible ? "auto" : "none" }} onClick={onClose} />
       <div style={{ ...styles.drawer, transform: visible ? "translateX(0)" : "translateX(100%)" }}>
-        <button style={styles.closeBtn} onClick={onClose} aria-label="Close drawer">&#x2715;</button>
+        <button style={styles.closeBtn} onClick={onClose} aria-label="Close drawer">
+          &#x2715;
+        </button>
 
         <div style={styles.header}>
           <div style={{ fontSize: "1.1rem", fontWeight: 700, color: "var(--text)", paddingRight: "2.5rem", fontFamily: "monospace" }}>
             {shortAddr(address)}
           </div>
-          <div style={{ fontSize: "0.75rem", color: "var(--text-3)", marginTop: "0.3rem" }}>
-            Ethereum only
-          </div>
+          <div style={{ fontSize: "0.75rem", color: "var(--text-3)", marginTop: "0.3rem" }}>Ethereum only</div>
         </div>
 
         <div style={styles.section}>
@@ -159,7 +158,9 @@ export function UserDrawer({ address, onClose }: UserDrawerProps) {
           {data && (
             <>
               <div style={{ marginBottom: "1rem" }}>
-                <div style={{ fontSize: "0.7rem", color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.04em" }}>Total Balance</div>
+                <div style={{ fontSize: "0.7rem", color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                  Total Balance
+                </div>
                 <div style={{ fontSize: "1.4rem", fontWeight: 700, color: "var(--accent)" }}>{fmt(data.totalBalanceUsd)}</div>
               </div>
 
@@ -186,9 +187,7 @@ export function UserDrawer({ address, onClose }: UserDrawerProps) {
               </table>
             </>
           )}
-          {!loading && data && data.holdings.length === 0 && (
-            <div className="text-dim">No vault holdings found</div>
-          )}
+          {!loading && data && data.holdings.length === 0 && <div className="text-dim">No vault holdings found</div>}
         </div>
       </div>
     </>

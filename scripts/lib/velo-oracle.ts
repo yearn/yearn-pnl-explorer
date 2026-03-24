@@ -12,9 +12,10 @@
  * would require archive RPC calls at each report's block + historical
  * token prices via DefiLlama's /historical endpoint.
  */
-import { createPublicClient, http, parseAbi, type Address, type PublicClient } from "viem";
-import { optimism, base } from "viem/chains";
+
 import { CHAIN_PREFIXES } from "@yearn-tvl/shared";
+import { type Address, createPublicClient, http, parseAbi } from "viem";
+import { base, optimism } from "viem/chains";
 
 const PAIR_ABI = parseAbi([
   "function token0() view returns (address)",
@@ -23,20 +24,15 @@ const PAIR_ABI = parseAbi([
   "function totalSupply() view returns (uint256)",
 ]);
 
-const ERC20_ABI = parseAbi([
-  "function decimals() view returns (uint8)",
-]);
+const ERC20_ABI = parseAbi(["function decimals() view returns (uint8)"]);
 
-const CHAINS: Record<number, (typeof optimism) | (typeof base)> = { 10: optimism, 8453: base };
+const CHAINS: Record<number, typeof optimism | typeof base> = { 10: optimism, 8453: base };
 
 /**
  * Price LP tokens by decomposing into underlying reserves.
  * Returns Map<lowercase_lp_address, priceUsd>.
  */
-export const priceViaSugarOracle = async (
-  chainId: number,
-  lpAddresses: string[],
-): Promise<Map<string, number>> => {
+export const priceViaSugarOracle = async (chainId: number, lpAddresses: string[]): Promise<Map<string, number>> => {
   const chain = CHAINS[chainId];
   const prefix = CHAIN_PREFIXES[chainId];
   if (!chain || !prefix) return new Map();
@@ -110,8 +106,8 @@ export const priceViaSugarOracle = async (
 
     if (p0 === 0 && p1 === 0) continue;
 
-    const val0 = Number(d.reserve0) / 10 ** dec0 * p0;
-    const val1 = Number(d.reserve1) / 10 ** dec1 * p1;
+    const val0 = (Number(d.reserve0) / 10 ** dec0) * p0;
+    const val1 = (Number(d.reserve1) / 10 ** dec1) * p1;
     const totalValue = val0 + val1;
     // LP tokens are 18 decimals for Solidly-style pools
     const supplyFloat = Number(d.totalSupply) / 1e18;

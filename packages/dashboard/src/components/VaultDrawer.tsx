@@ -1,6 +1,6 @@
-import { useEffect, useCallback, useState, useRef, type CSSProperties } from "react";
+import { type CSSProperties, useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { fmt, pctFmt, shortAddr, CHAIN_NAMES, EXPLORER_URLS, CAT_COLORS, API_BASE } from "../hooks";
+import { API_BASE, CAT_COLORS, CHAIN_NAMES, EXPLORER_URLS, fmt, pctFmt, shortAddr } from "../hooks";
 
 export interface VaultDetail {
   address: string;
@@ -10,7 +10,6 @@ export interface VaultDetail {
   vaultType: number | null;
   tvlUsd: number;
   isRetired?: boolean;
-  // Optional fields from different panels
   totalFeeRevenue?: number;
   performanceFeeRevenue?: number;
   managementFeeRevenue?: number;
@@ -239,17 +238,30 @@ function bpsPctLabel(bps: number): string {
   return `${(bps / 100).toFixed(1)}%`;
 }
 
+function DepositorSkeleton() {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+      {Array.from({ length: 4 }).map((_, i) => (
+        <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "0.5rem 0" }}>
+          <div className="skeleton" style={{ width: "35%", height: 14, borderRadius: 4 }} />
+          <div className="skeleton" style={{ width: "25%", height: 14, borderRadius: 4 }} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function VaultDrawer({ vault, onClose, onDepositorClick }: VaultDrawerProps) {
   const [copied, setCopied] = useState(false);
   const [visible, setVisible] = useState(false);
   const [depositorRows, setDepositorRows] = useState<DepositorRow[]>([]);
   const [depositorLoading, setDepositorLoading] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
+  const drawerRef = useRef<HTMLDivElement>(null);
 
   // Animate in after mount
   useEffect(() => {
     if (vault) {
-      // Small delay to trigger CSS transition from closed -> open
       const raf = requestAnimationFrame(() => setVisible(true));
       return () => cancelAnimationFrame(raf);
     }
@@ -270,9 +282,18 @@ export function VaultDrawer({ vault, onClose, onDepositorClick }: VaultDrawerPro
   useEffect(() => {
     if (vault) {
       document.body.style.overflow = "hidden";
-      return () => { document.body.style.overflow = ""; };
+      return () => {
+        document.body.style.overflow = "";
+      };
     }
   }, [vault]);
+
+  // Focus trap: focus the drawer when it opens
+  useEffect(() => {
+    if (vault && visible && drawerRef.current) {
+      drawerRef.current.focus();
+    }
+  }, [vault, visible]);
 
   // Fetch depositors when drawer opens
   useEffect(() => {
@@ -314,14 +335,12 @@ export function VaultDrawer({ vault, onClose, onDepositorClick }: VaultDrawerPro
   if (!vault) return null;
 
   const explorerBase = EXPLORER_URLS[vault.chainId];
-  const explorerUrl = explorerBase ? `${explorerBase}/${vault.address}` : null;
+  const _explorerUrl = explorerBase ? `${explorerBase}/${vault.address}` : null;
   const chainName = CHAIN_NAMES[vault.chainId] ?? `Chain ${vault.chainId}`;
   const catBadgeStyle = CATEGORY_BADGE_STYLES[vault.category] ?? CATEGORY_BADGE_STYLES.v2;
 
   // Build metric items - only show fields that have values
-  const metrics: { label: string; value: string; accent?: boolean }[] = [
-    { label: "TVL", value: fmt(vault.tvlUsd), accent: true },
-  ];
+  const metrics: { label: string; value: string; accent?: boolean }[] = [{ label: "TVL", value: fmt(vault.tvlUsd), accent: true }];
 
   if (vault.totalFeeRevenue != null && vault.totalFeeRevenue > 0) {
     metrics.push({ label: "Total Fee Revenue", value: fmt(vault.totalFeeRevenue) });
@@ -360,10 +379,18 @@ export function VaultDrawer({ vault, onClose, onDepositorClick }: VaultDrawerPro
           pointerEvents: visible ? "auto" : "none",
         }}
         onClick={onClose}
+        aria-hidden="true"
       />
 
       {/* Drawer panel */}
-      <div style={drawerStyle}>
+      <div
+        ref={drawerRef}
+        style={drawerStyle}
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Vault details: ${vault.name || shortAddr(vault.address)}`}
+        tabIndex={-1}
+      >
         {/* Close button */}
         <button
           style={styles.closeBtn}
@@ -383,24 +410,22 @@ export function VaultDrawer({ vault, onClose, onDepositorClick }: VaultDrawerPro
 
         {/* Header */}
         <div style={styles.header}>
-          <div style={styles.vaultName}>
-            {vault.name || shortAddr(vault.address)}
-          </div>
+          <div style={styles.vaultName}>{vault.name || shortAddr(vault.address)}</div>
           <div style={styles.tagRow}>
-            <span style={{ ...styles.badge, ...catBadgeStyle }}>
-              {vault.category}
-            </span>
+            <span style={{ ...styles.badge, ...catBadgeStyle }}>{vault.category}</span>
             <span style={styles.chainTag}>{chainName}</span>
-            {vault.isRetired && (
-              <span style={styles.retiredBadge}>Retired</span>
-            )}
+            {vault.isRetired && <span style={styles.retiredBadge}>Retired</span>}
             <a
               href={`https://yearn.fi/vaults/${vault.chainId}/${vault.address}`}
               target="_blank"
               rel="noopener noreferrer"
               style={styles.explorerLink}
-              onMouseEnter={(e) => { e.currentTarget.style.color = "var(--accent)"; }}
-              onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-3)"; }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.color = "var(--accent)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.color = "var(--text-3)";
+              }}
             >
               View on Yearn &#8599;
             </a>
@@ -435,9 +460,7 @@ export function VaultDrawer({ vault, onClose, onDepositorClick }: VaultDrawerPro
           <div style={styles.detailRow}>
             <span style={styles.detailLabel}>Address</span>
             <div style={styles.addressRow}>
-              <span style={{ ...styles.detailValue, fontFamily: "monospace", fontSize: "0.78rem" }}>
-                {shortAddr(vault.address)}
-              </span>
+              <span style={{ ...styles.detailValue, fontFamily: "monospace", fontSize: "0.78rem" }}>{shortAddr(vault.address)}</span>
               <button
                 style={styles.copyBtn}
                 onClick={handleCopy}
@@ -481,10 +504,12 @@ export function VaultDrawer({ vault, onClose, onDepositorClick }: VaultDrawerPro
           {/* Retirement Status */}
           <div style={styles.detailRow}>
             <span style={styles.detailLabel}>Status</span>
-            <span style={{
-              ...styles.detailValue,
-              color: vault.isRetired ? "var(--red)" : "var(--green)",
-            }}>
+            <span
+              style={{
+                ...styles.detailValue,
+                color: vault.isRetired ? "var(--red)" : "var(--green)",
+              }}
+            >
               {vault.isRetired ? "Retired" : "Active"}
             </span>
           </div>
@@ -501,14 +526,17 @@ export function VaultDrawer({ vault, onClose, onDepositorClick }: VaultDrawerPro
           {vault.pricingConfidence && (
             <div style={styles.detailRow}>
               <span style={styles.detailLabel}>Pricing Confidence</span>
-              <span style={{
-                ...styles.detailValue,
-                color: vault.pricingConfidence === "high"
-                  ? "var(--green)"
-                  : vault.pricingConfidence === "medium"
-                    ? "var(--yellow)"
-                    : "var(--red)",
-              }}>
+              <span
+                style={{
+                  ...styles.detailValue,
+                  color:
+                    vault.pricingConfidence === "high"
+                      ? "var(--green)"
+                      : vault.pricingConfidence === "medium"
+                        ? "var(--yellow)"
+                        : "var(--red)",
+                }}
+              >
                 {vault.pricingConfidence.charAt(0).toUpperCase() + vault.pricingConfidence.slice(1)}
               </span>
             </div>
@@ -548,11 +576,9 @@ export function VaultDrawer({ vault, onClose, onDepositorClick }: VaultDrawerPro
         <div style={styles.sectionLast}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <div style={styles.sectionTitle}>Depositors</div>
-            {vault.chainId === 1 ? null : (
-              <span style={{ fontSize: "0.65rem", color: "var(--text-3)" }}>Ethereum only</span>
-            )}
+            {vault.chainId === 1 ? null : <span style={{ fontSize: "0.65rem", color: "var(--text-3)" }}>Ethereum only</span>}
           </div>
-          {depositorLoading && <div style={{ color: "var(--text-3)", fontSize: "0.8rem" }}>Loading...</div>}
+          {depositorLoading && <DepositorSkeleton />}
           {!depositorLoading && depositorRows.length === 0 && (
             <div style={{ color: "var(--text-3)", fontSize: "0.8rem" }}>No depositor data</div>
           )}
@@ -568,6 +594,15 @@ export function VaultDrawer({ vault, onClose, onDepositorClick }: VaultDrawerPro
                       cursor: onDepositorClick ? "pointer" : "default",
                     }}
                     onClick={() => onDepositorClick?.(d.address)}
+                    role={onDepositorClick ? "button" : undefined}
+                    tabIndex={onDepositorClick ? 0 : undefined}
+                    onKeyDown={
+                      onDepositorClick
+                        ? (e) => {
+                            if (e.key === "Enter") onDepositorClick(d.address);
+                          }
+                        : undefined
+                    }
                   >
                     {shortAddr(d.address)}
                   </span>

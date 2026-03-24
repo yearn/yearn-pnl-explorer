@@ -1,7 +1,10 @@
-import { useState, useEffect, useRef, useCallback, type CSSProperties } from "react";
+import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { API_BASE, CHAIN_NAMES, fmt } from "../hooks";
 
 interface CommandPaletteProps {
   onNavigate: (tab: string) => void;
+  onChainSelect: (chain: string) => void;
+  chainFilter: string;
   isOpen: boolean;
   onClose: () => void;
 }
@@ -9,23 +12,33 @@ interface CommandPaletteProps {
 interface PaletteItem {
   id: string;
   label: string;
-  type: "navigation" | "action";
+  type: "navigation" | "action" | "chain" | "vault";
   icon: string;
   hint: string;
+  meta?: { address?: string; chainId?: number; tvlUsd?: number };
 }
 
 const NAV_ITEMS: PaletteItem[] = [
   { id: "Overview", label: "Overview", type: "navigation", icon: "\u{1F4CA}", hint: "TVL summary" },
-  { id: "Audit", label: "Audit", type: "navigation", icon: "\u{1F504}", hint: "vs DefiLlama" },
+  { id: "Comparison", label: "Comparison", type: "navigation", icon: "\u{1F504}", hint: "vs DefiLlama" },
   { id: "Fees", label: "Fees", type: "navigation", icon: "\u{1F4B0}", hint: "Fee revenue" },
   { id: "Vaults", label: "Vaults", type: "navigation", icon: "\u{1F3E6}", hint: "Vault tree & overlaps" },
+];
+
+const CHAIN_ITEMS: PaletteItem[] = [
+  { id: "chain:all", label: "All Chains", type: "chain", icon: "\u{1F30D}", hint: "Remove chain filter" },
+  ...Object.entries(CHAIN_NAMES).map(([id, name]) => ({
+    id: `chain:${id}`,
+    label: name,
+    type: "chain" as const,
+    icon: "\u{26D3}",
+    hint: `Filter to ${name}`,
+  })),
 ];
 
 const ACTION_ITEMS: PaletteItem[] = [
   { id: "export", label: "Export current view", type: "action", icon: "\u{1F4E4}", hint: "Download CSV" },
 ];
-
-const ALL_ITEMS = [...NAV_ITEMS, ...ACTION_ITEMS];
 
 /* ---- Styles ---- */
 
@@ -86,7 +99,7 @@ const styles: Record<string, CSSProperties> = {
     fontFamily: "inherit",
   },
   list: {
-    maxHeight: 340,
+    maxHeight: 400,
     overflowY: "auto" as const,
     padding: "6px 8px",
   },
@@ -208,6 +221,7 @@ function SearchSvg() {
       strokeWidth="1.5"
       strokeLinecap="round"
       strokeLinejoin="round"
+      aria-hidden="true"
     >
       <circle cx="6.5" cy="6.5" r="5" />
       <line x1="10" y1="10" x2="14.5" y2="14.5" />
@@ -215,28 +229,122 @@ function SearchSvg() {
   );
 }
 
+/* ---- Vault search cache ---- */
+interface VaultSearchResult {
+  address: string;
+  chainId: number;
+  name: string | null;
+  tvlUsd: number;
+}
+
+let vaultCache: VaultSearchResult[] | null = null;
+let vaultCacheTs = 0;
+const VAULT_CACHE_TTL = 5 * 60 * 1000;
+
+async function fetchVaults(): Promise<VaultSearchResult[]> {
+  if (vaultCache && Date.now() - vaultCacheTs < VAULT_CACHE_TTL) return vaultCache;
+  try {
+    const res = await fetch(`${API_BASE}/api/tvl/vaults`);
+    if (!res.ok) return vaultCache || [];
+    const data = await res.json();
+    vaultCache = (data.vaults || data || []).map((v: any) => ({
+      address: v.address,
+      chainId: v.chainId,
+      name: v.name,
+      tvlUsd: v.tvlUsd,
+    }));
+    vaultCacheTs = Date.now();
+    return vaultCache!;
+  } catch {
+    return vaultCache || [];
+  }
+}
+
 /* ---- Component ---- */
 
-export function CommandPalette({ onNavigate, isOpen, onClose }: CommandPaletteProps) {
+export function CommandPalette({ onNavigate, onChainSelect, chainFilter, isOpen, onClose }: CommandPaletteProps) {
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
+  const [vaultResults, setVaultResults] = useState<PaletteItem[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
-  // Filtered items
-  const filtered = ALL_ITEMS.filter((item) => {
-    if (!query.trim()) return true;
+  // Load vaults on open
+  useEffect(() => {
+    if (isOpen) {
+      fetchVaults(); // preload
+    }
+  }, [isOpen]);
+
+  // Search vaults when query changes
+  useEffect(() => {
+    if (!query.trim() || query.length < 2) {
+      setVaultResults([]);
+      return;
+    }
+
     const q = query.toLowerCase();
-    return (
-      item.label.toLowerCase().includes(q) ||
-      item.hint.toLowerCase().includes(q)
-    );
-  });
+    fetchVaults().then((vaults) => {
+      const matches = vaults
+        .filter((v) => (v.name || "").toLowerCase().includes(q) || v.address.toLowerCase().includes(q))
+        .sort((a, b) => b.tvlUsd - a.tvlUsd)
+        .slice(0, 8)
+        .map(
+          (v): PaletteItem => ({
+            id: `vault:${v.chainId}:${v.address}`,
+            label: v.name || `${v.address.slice(0, 10)}...`,
+            type: "vault",
+            icon: "\u{1F512}",
+            hint: fmt(v.tvlUsd),
+            meta: { address: v.address, chainId: v.chainId, tvlUsd: v.tvlUsd },
+          }),
+        );
+      setVaultResults(matches);
+    });
+  }, [query]);
+
+  // Build static items
+  const staticItems = useMemo(() => {
+    const q = query.toLowerCase().trim();
+    if (!q) return [...NAV_ITEMS, ...CHAIN_ITEMS.slice(0, 4), ...ACTION_ITEMS]; // Show top chains when no query
+
+    const filtered: PaletteItem[] = [];
+
+    // Nav items
+    for (const item of NAV_ITEMS) {
+      if (item.label.toLowerCase().includes(q) || item.hint.toLowerCase().includes(q)) {
+        filtered.push(item);
+      }
+    }
+
+    // Chain items (show more when searching)
+    for (const item of CHAIN_ITEMS) {
+      if (item.label.toLowerCase().includes(q) || item.hint.toLowerCase().includes(q)) {
+        filtered.push(item);
+      }
+    }
+
+    // Action items
+    for (const item of ACTION_ITEMS) {
+      if (item.label.toLowerCase().includes(q) || item.hint.toLowerCase().includes(q)) {
+        filtered.push(item);
+      }
+    }
+
+    return filtered;
+  }, [query]);
+
+  // Combine all results
+  const allResults = useMemo(() => {
+    return [...staticItems, ...vaultResults];
+  }, [staticItems, vaultResults]);
 
   // Split into sections for display
-  const navResults = filtered.filter((i) => i.type === "navigation");
-  const actionResults = filtered.filter((i) => i.type === "action");
-  const flatResults = [...navResults, ...actionResults];
+  const navResults = allResults.filter((i) => i.type === "navigation");
+  const chainResults = allResults.filter((i) => i.type === "chain");
+  const actionResults = allResults.filter((i) => i.type === "action");
+  const vaultItems = allResults.filter((i) => i.type === "vault");
+  const flatResults = [...navResults, ...chainResults, ...vaultItems, ...actionResults];
 
   // Reset state when opening/closing
   useEffect(() => {
@@ -244,7 +352,7 @@ export function CommandPalette({ onNavigate, isOpen, onClose }: CommandPalettePr
       ensureKeyframes();
       setQuery("");
       setActiveIndex(0);
-      // Small delay so the DOM is ready before focusing
+      setVaultResults([]);
       requestAnimationFrame(() => {
         inputRef.current?.focus();
       });
@@ -268,11 +376,16 @@ export function CommandPalette({ onNavigate, isOpen, onClose }: CommandPalettePr
     (item: PaletteItem) => {
       if (item.type === "navigation") {
         onNavigate(item.id);
+      } else if (item.type === "chain") {
+        const chainId = item.id.replace("chain:", "");
+        onChainSelect(chainId);
+      } else if (item.type === "vault" && item.meta) {
+        // Navigate to Vaults tab — the user can find it there
+        onNavigate("Vaults");
       }
-      // For "export" action, we just close -- the parent can handle it
       onClose();
     },
-    [onNavigate, onClose],
+    [onNavigate, onChainSelect, onClose],
   );
 
   const handleKeyDown = useCallback(
@@ -282,9 +395,7 @@ export function CommandPalette({ onNavigate, isOpen, onClose }: CommandPalettePr
         setActiveIndex((prev) => (prev + 1) % Math.max(1, flatResults.length));
       } else if (e.key === "ArrowUp") {
         e.preventDefault();
-        setActiveIndex((prev) =>
-          prev <= 0 ? Math.max(0, flatResults.length - 1) : prev - 1,
-        );
+        setActiveIndex((prev) => (prev <= 0 ? Math.max(0, flatResults.length - 1) : prev - 1));
       } else if (e.key === "Enter") {
         e.preventDefault();
         const item = flatResults[activeIndex];
@@ -298,6 +409,41 @@ export function CommandPalette({ onNavigate, isOpen, onClose }: CommandPalettePr
   );
 
   if (!isOpen) return null;
+
+  const renderSection = (label: string, items: PaletteItem[]) => {
+    if (items.length === 0) return null;
+    return (
+      <>
+        <div style={styles.sectionLabel}>{label}</div>
+        {items.map((item) => {
+          const idx = flatResults.indexOf(item);
+          const isChainActive = item.type === "chain" && item.id === `chain:${chainFilter}`;
+          return (
+            <div
+              key={item.id}
+              data-cmdk-item
+              style={{
+                ...styles.item,
+                ...(idx === activeIndex ? styles.itemActive : {}),
+              }}
+              onMouseEnter={() => setActiveIndex(idx)}
+              onClick={() => selectItem(item)}
+              role="option"
+              aria-selected={idx === activeIndex}
+            >
+              <div style={styles.itemIcon}>{item.icon}</div>
+              <span style={styles.itemLabel}>
+                {item.label}
+                {isChainActive && <span style={{ color: "var(--accent)", marginLeft: 6, fontSize: "0.7rem" }}>(active)</span>}
+              </span>
+              <span style={styles.itemHint}>{item.hint}</span>
+              <kbd style={styles.itemKbd}>Enter</kbd>
+            </div>
+          );
+        })}
+      </>
+    );
+  };
 
   return (
     <div
@@ -315,74 +461,31 @@ export function CommandPalette({ onNavigate, isOpen, onClose }: CommandPalettePr
             ref={inputRef}
             style={styles.input}
             type="text"
-            placeholder="Search tabs, actions..."
+            placeholder="Search tabs, chains, vaults..."
             value={query}
             onChange={(e) => {
               setQuery(e.target.value);
               setActiveIndex(0);
             }}
             aria-label="Search command palette"
+            role="combobox"
+            aria-expanded="true"
+            aria-controls="cmdk-list"
+            aria-activedescendant={flatResults[activeIndex]?.id}
           />
           <kbd style={styles.kbdHint}>ESC</kbd>
         </div>
 
         {/* Results */}
-        <div style={styles.list} ref={listRef}>
+        <div style={styles.list} ref={listRef} id="cmdk-list" role="listbox">
           {flatResults.length === 0 ? (
             <div style={styles.empty}>No results for "{query}"</div>
           ) : (
             <>
-              {navResults.length > 0 && (
-                <>
-                  <div style={styles.sectionLabel}>Navigate</div>
-                  {navResults.map((item) => {
-                    const idx = flatResults.indexOf(item);
-                    return (
-                      <div
-                        key={item.id}
-                        data-cmdk-item
-                        style={{
-                          ...styles.item,
-                          ...(idx === activeIndex ? styles.itemActive : {}),
-                        }}
-                        onMouseEnter={() => setActiveIndex(idx)}
-                        onClick={() => selectItem(item)}
-                      >
-                        <div style={styles.itemIcon}>{item.icon}</div>
-                        <span style={styles.itemLabel}>{item.label}</span>
-                        <span style={styles.itemHint}>{item.hint}</span>
-                        <kbd style={styles.itemKbd}>Enter</kbd>
-                      </div>
-                    );
-                  })}
-                </>
-              )}
-
-              {actionResults.length > 0 && (
-                <>
-                  <div style={styles.sectionLabel}>Actions</div>
-                  {actionResults.map((item) => {
-                    const idx = flatResults.indexOf(item);
-                    return (
-                      <div
-                        key={item.id}
-                        data-cmdk-item
-                        style={{
-                          ...styles.item,
-                          ...(idx === activeIndex ? styles.itemActive : {}),
-                        }}
-                        onMouseEnter={() => setActiveIndex(idx)}
-                        onClick={() => selectItem(item)}
-                      >
-                        <div style={styles.itemIcon}>{item.icon}</div>
-                        <span style={styles.itemLabel}>{item.label}</span>
-                        <span style={styles.itemHint}>{item.hint}</span>
-                        <kbd style={styles.itemKbd}>Enter</kbd>
-                      </div>
-                    );
-                  })}
-                </>
-              )}
+              {renderSection("Navigate", navResults)}
+              {renderSection("Chains", chainResults)}
+              {renderSection("Vaults", vaultItems)}
+              {renderSection("Actions", actionResults)}
             </>
           )}
         </div>

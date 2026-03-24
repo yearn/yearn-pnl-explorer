@@ -3,11 +3,12 @@
  * V1 vaults use getPricePerFullShare() instead of totalAssets().
  * TVL = totalSupply × pricePerFullShare / 1e18, priced via DefiLlama.
  */
-import { createPublicClient, http, parseAbi, getAddress } from "viem";
+
+import { db, vaultSnapshots, vaults } from "@yearn-tvl/db";
+import { fetchCurrentPrices, V1_VAULTS } from "@yearn-tvl/shared";
+import { and, eq } from "drizzle-orm";
+import { createPublicClient, getAddress, http, parseAbi } from "viem";
 import { mainnet } from "viem/chains";
-import { db, vaults, vaultSnapshots } from "@yearn-tvl/db";
-import { eq, and } from "drizzle-orm";
-import { V1_VAULTS, fetchCurrentPrices } from "@yearn-tvl/shared";
 
 const V1_ABI = parseAbi([
   "function token() view returns (address)",
@@ -17,15 +18,23 @@ const V1_ABI = parseAbi([
   "function decimals() view returns (uint8)",
 ]);
 
-const ERC20_ABI = parseAbi([
-  "function symbol() view returns (string)",
-  "function decimals() view returns (uint8)",
-]);
+const ERC20_ABI = parseAbi(["function symbol() view returns (string)", "function decimals() view returns (uint8)"]);
 
 const STABLE_LP_SYMBOLS = [
-  "yDAI+yUSDC+yUSDT+yTUSD", "yDAI+yUSDC+yUSDT+yBUSD", "crvPlain3andSUSD",
-  "dusd3CRV", "usdp3CRV", "musd3CRV", "ust3CRV", "gusd3CRV", "husd3CRV",
-  "usdn3CRV", "rsv3CRV", "tusd3CRV", "busd3CRV", "pax3CRV",
+  "yDAI+yUSDC+yUSDT+yTUSD",
+  "yDAI+yUSDC+yUSDT+yBUSD",
+  "crvPlain3andSUSD",
+  "dusd3CRV",
+  "usdp3CRV",
+  "musd3CRV",
+  "ust3CRV",
+  "gusd3CRV",
+  "husd3CRV",
+  "usdn3CRV",
+  "rsv3CRV",
+  "tusd3CRV",
+  "busd3CRV",
+  "pax3CRV",
 ];
 
 interface V1Data {
@@ -39,12 +48,7 @@ interface V1Data {
   decimals: number;
 }
 
-const upsertVault = async (
-  existing: { id: number } | undefined,
-  addr: string,
-  v: V1Data,
-  now: string,
-): Promise<number> => {
+const upsertVault = async (existing: { id: number } | undefined, addr: string, v: V1Data, now: string): Promise<number> => {
   const shared = {
     name: v.name,
     category: "v1" as const,
@@ -56,20 +60,25 @@ const upsertVault = async (
   };
 
   if (existing) {
-    await db.update(vaults).set({ ...shared, updatedAt: now })
+    await db
+      .update(vaults)
+      .set({ ...shared, updatedAt: now })
       .where(eq(vaults.id, existing.id));
     return existing.id;
   }
 
-  const [inserted] = await db.insert(vaults).values({
-    ...shared,
-    address: addr,
-    chainId: 1,
-    v3: false,
-    yearn: true,
-    createdAt: now,
-    updatedAt: now,
-  }).returning({ id: vaults.id });
+  const [inserted] = await db
+    .insert(vaults)
+    .values({
+      ...shared,
+      address: addr,
+      chainId: 1,
+      v3: false,
+      yearn: true,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .returning({ id: vaults.id });
   return inserted.id;
 };
 
@@ -120,9 +129,7 @@ export const fetchV1Vaults = async () => {
   console.log(`  Read ${vaultData.length}/${V1_VAULTS.length} vaults successfully`);
 
   // Fetch token prices from DefiLlama
-  const prices = await fetchCurrentPrices(
-    [...tokenAddresses].map((address) => ({ chainId: 1, address })),
-  );
+  const prices = await fetchCurrentPrices([...tokenAddresses].map((address) => ({ chainId: 1, address })));
   console.log(`  Got prices for ${prices.size}/${tokenAddresses.size} tokens\n`);
 
   let stored = 0;
@@ -134,12 +141,10 @@ export const fetchV1Vaults = async () => {
       const addr = getAddress(v.address);
 
       // TVL = totalSupply * pricePerFullShare / 1e18 (in underlying tokens)
-      const underlyingAmount =
-        Number(v.totalSupply) * Number(v.pricePerFullShare) / 1e18 / 10 ** v.tokenDecimals;
+      const underlyingAmount = (Number(v.totalSupply) * Number(v.pricePerFullShare)) / 1e18 / 10 ** v.tokenDecimals;
 
       // Stablecoin Curve LP fallback: ~$1/token for pools composed of stablecoins
-      const tokenPrice = prices.get(v.token.toLowerCase())
-        || (STABLE_LP_SYMBOLS.includes(v.tokenSymbol) ? 1 : 0);
+      const tokenPrice = prices.get(v.token.toLowerCase()) || (STABLE_LP_SYMBOLS.includes(v.tokenSymbol) ? 1 : 0);
 
       const tvlUsd = underlyingAmount * tokenPrice;
 
@@ -151,9 +156,7 @@ export const fetchV1Vaults = async () => {
       const vaultId = await upsertVault(existing, addr, v, now);
 
       // Insert snapshot
-      const totalAssetsStr = (
-        (v.totalSupply * v.pricePerFullShare) / BigInt(1e18)
-      ).toString();
+      const totalAssetsStr = ((v.totalSupply * v.pricePerFullShare) / BigInt(1e18)).toString();
 
       await db.insert(vaultSnapshots).values({
         vaultId,

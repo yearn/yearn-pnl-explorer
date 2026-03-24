@@ -10,9 +10,9 @@
  *   - reprice-reports.ts (accurate historical gainUsd)
  *   - fees.ts (time-weighted TVL for management fees)
  */
-import { db, vaults, strategyReports, assetPrices } from "@yearn-tvl/db";
-import { sql, and, eq, isNotNull, gte } from "drizzle-orm";
-import { CHAIN_PREFIXES, weeklyTimestamps, MIN_BLOCK_TIMESTAMP } from "@yearn-tvl/shared";
+import { assetPrices, db, strategyReports, vaults } from "@yearn-tvl/db";
+import { CHAIN_PREFIXES, MIN_BLOCK_TIMESTAMP, weeklyTimestamps } from "@yearn-tvl/shared";
+import { gte, isNotNull, sql } from "drizzle-orm";
 
 const DELAY_MS = 250;
 const BATCH_SIZE = 80; // DL handles ~100 coins per call, stay under
@@ -68,10 +68,7 @@ const getAllExistingTimestamps = async (): Promise<Map<string, Set<number>>> => 
 };
 
 /** Batch-fetch prices from DefiLlama for multiple assets at a single timestamp */
-const fetchPricesFromDL = async (
-  timestamp: number,
-  assets: AssetInfo[],
-): Promise<Map<string, number>> => {
+const fetchPricesFromDL = async (timestamp: number, assets: AssetInfo[]): Promise<Map<string, number>> => {
   const coinKeys = assets
     .map((a) => {
       const prefix = CHAIN_PREFIXES[a.chainId];
@@ -111,7 +108,9 @@ export const fetchHistoricalPrices = async () => {
   const earliestReport = await getEarliestReportTime();
   const now = Math.floor(Date.now() / 1000);
   const weeks = weeklyTimestamps(earliestReport, now);
-  console.log(`Date range: ${new Date(earliestReport * 1000).toISOString().slice(0, 10)} → ${new Date(now * 1000).toISOString().slice(0, 10)}`);
+  console.log(
+    `Date range: ${new Date(earliestReport * 1000).toISOString().slice(0, 10)} → ${new Date(now * 1000).toISOString().slice(0, 10)}`,
+  );
   console.log(`${weeks.length} weekly timestamps to check\n`);
 
   // Build lookup for what we already have (single query)
@@ -221,9 +220,7 @@ export const fetchHistoricalPrices = async () => {
 
     if ((wi + 1) % 10 === 0 || wi === weeks.length - 1) {
       const date = new Date(weekTs * 1000).toISOString().slice(0, 10);
-      process.stdout.write(
-        `  Week ${wi + 1}/${weeks.length} (${date}): ${stored} stored, ${failed} failed, ${apiCalls} API calls\n`,
-      );
+      process.stdout.write(`  Week ${wi + 1}/${weeks.length} (${date}): ${stored} stored, ${failed} failed, ${apiCalls} API calls\n`);
     }
   }
 

@@ -4,10 +4,10 @@
  * Note: Kong transfers are limited to ~100 results per query with no pagination,
  * and mainly work for Ethereum V2 vaults.
  */
-import { db, vaults, depositors } from "@yearn-tvl/db";
-import { eq, and, sql } from "drizzle-orm";
-import { KONG_API_URL, KongTransferRESTSchema, validateArray, retryWithBackoff } from "@yearn-tvl/shared";
+import { db, depositors, vaults } from "@yearn-tvl/db";
 import type { KongTransferREST } from "@yearn-tvl/shared";
+import { KONG_API_URL, KongTransferRESTSchema, retryWithBackoff, validateArray } from "@yearn-tvl/shared";
+import { and, eq } from "drizzle-orm";
 
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 
@@ -34,27 +34,30 @@ const TRANSFERS_QUERY = `
 
 const fetchTransfers = async (chainId: number, vaultAddress: string): Promise<KongTransfer[]> => {
   try {
-    return await retryWithBackoff(async () => {
-      const res = await fetch(KONG_API_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          query: TRANSFERS_QUERY,
-          variables: { chainId, address: vaultAddress },
-        }),
-      });
+    return await retryWithBackoff(
+      async () => {
+        const res = await fetch(KONG_API_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            query: TRANSFERS_QUERY,
+            variables: { chainId, address: vaultAddress },
+          }),
+        });
 
-      if (!res.ok) throw new Error(`Kong API error: ${res.status}`);
+        if (!res.ok) throw new Error(`Kong API error: ${res.status}`);
 
-      const json = (await res.json()) as { data?: { transfers?: unknown[] }; errors?: unknown[] };
-      if (json.errors) {
-        console.warn(`  GraphQL errors for ${vaultAddress}:`, json.errors);
-        return [];
-      }
+        const json = (await res.json()) as { data?: { transfers?: unknown[] }; errors?: unknown[] };
+        if (json.errors) {
+          console.warn(`  GraphQL errors for ${vaultAddress}:`, json.errors);
+          return [];
+        }
 
-      const raw = json.data?.transfers ?? [];
-      return validateArray(raw, KongTransferRESTSchema, "KongTransfer");
-    }, { label: `fetchTransfers(${vaultAddress.slice(0, 10)})` });
+        const raw = json.data?.transfers ?? [];
+        return validateArray(raw, KongTransferRESTSchema, "KongTransfer");
+      },
+      { label: `fetchTransfers(${vaultAddress.slice(0, 10)})` },
+    );
   } catch {
     return [];
   }
@@ -106,19 +109,12 @@ const blockTimeToIso = (blockTime: string): string => {
   return blockTime;
 };
 
-const upsertDepositors = async (
-  vaultId: number,
-  chainId: number,
-  depositorMap: Map<string, DepositorEntry>
-): Promise<number> => {
+const upsertDepositors = async (vaultId: number, chainId: number, depositorMap: Map<string, DepositorEntry>): Promise<number> => {
   let count = 0;
 
   for (const entry of depositorMap.values()) {
     const existing = await db.query.depositors.findFirst({
-      where: and(
-        eq(depositors.address, entry.address),
-        eq(depositors.vaultId, vaultId)
-      ),
+      where: and(eq(depositors.address, entry.address), eq(depositors.vaultId, vaultId)),
     });
 
     const firstSeen = blockTimeToIso(entry.firstSeen);
@@ -154,10 +150,7 @@ const upsertDepositors = async (
 export const fetchAndStoreDepositors = async () => {
   // Get active (non-retired) vaults, focusing on chain 1 where transfers work
   const activeVaults = await db.query.vaults.findMany({
-    where: and(
-      eq(vaults.isRetired, false),
-      eq(vaults.chainId, 1)
-    ),
+    where: and(eq(vaults.isRetired, false), eq(vaults.chainId, 1)),
   });
 
   console.log(`Found ${activeVaults.length} active Ethereum vaults to process`);

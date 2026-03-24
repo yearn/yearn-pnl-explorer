@@ -1,7 +1,19 @@
-import { useState, useContext, useMemo } from "react";
+import { useContext, useMemo, useState } from "react";
 import { DashboardContext } from "../App";
-import { VaultDrawer, type VaultDetail } from "../components/VaultDrawer";
-import { useFetch, fmt, shortAddr, useSort, CHAIN_NAMES, CHAIN_SHORT, EXPLORER_URLS, SkeletonCards, SkeletonChart, exportCSV, useDebouncedValue } from "../hooks";
+import { type VaultDetail, VaultDrawer } from "../components/VaultDrawer";
+import {
+  CHAIN_NAMES,
+  CHAIN_SHORT,
+  EXPLORER_URLS,
+  exportCSV,
+  fmt,
+  SkeletonCards,
+  SkeletonChart,
+  shortAddr,
+  useDebouncedValue,
+  useFetch,
+  useSort,
+} from "../hooks";
 
 interface VaultTvl {
   address: string;
@@ -34,10 +46,7 @@ const PAGE_SIZE = 50;
 
 function categoryBadge(cat: string) {
   const cls =
-    cat === "v2" ? "badge badge-v2"
-    : cat === "v3" ? "badge badge-v3"
-    : cat === "curation" ? "badge badge-curation"
-    : "badge badge-v1";
+    cat === "v2" ? "badge badge-v2" : cat === "v3" ? "badge badge-v3" : cat === "curation" ? "badge badge-curation" : "badge badge-v1";
   return <span className={cls}>{cat}</span>;
 }
 
@@ -100,17 +109,11 @@ export function VaultsPanel() {
     [searchFiltered, vaultSort.sorted],
   );
 
-  const filteredTvl = useMemo(
-    () => searchFiltered.reduce((sum, v) => sum + v.tvlUsd, 0),
-    [searchFiltered],
-  );
+  const filteredTvl = useMemo(() => searchFiltered.reduce((sum, v) => sum + v.tvlUsd, 0), [searchFiltered]);
 
   const filteredCount = useMemo(() => searchFiltered.length, [searchFiltered]);
 
-  const maxTvl = useMemo(
-    () => (sortedVaults.length > 0 ? Math.max(...sortedVaults.map((v) => v.tvlUsd)) : 1),
-    [sortedVaults],
-  );
+  const maxTvl = useMemo(() => (sortedVaults.length > 0 ? Math.max(...sortedVaults.map((v) => v.tvlUsd)) : 1), [sortedVaults]);
 
   const sortedOverlaps = useMemo(
     () =>
@@ -127,7 +130,13 @@ export function VaultsPanel() {
     [overlap, overlapSort.sorted],
   );
 
-  if (loading) return <><SkeletonCards count={3} /><SkeletonChart /></>;
+  if (loading)
+    return (
+      <>
+        <SkeletonCards count={3} />
+        <SkeletonChart />
+      </>
+    );
   if (!data) return null;
 
   const totalPages = Math.max(1, Math.ceil(sortedVaults.length / PAGE_SIZE));
@@ -148,7 +157,9 @@ export function VaultsPanel() {
         </div>
         <div className="metric metric-green">
           <div className="label">Net TVL</div>
-          <div className="value" style={{ color: "var(--green)" }}>{fmt(filteredTvl - (overlap?.totalOverlap ?? 0))}</div>
+          <div className="value" style={{ color: "var(--green)" }}>
+            {fmt(filteredTvl - (overlap?.totalOverlap ?? 0))}
+          </div>
           <div className="sub">Gross {fmt(filteredTvl)} minus overlap</div>
         </div>
         <div className="metric metric-yellow">
@@ -166,23 +177,12 @@ export function VaultsPanel() {
 
       {/* ── Filter Bar ── */}
       <div className="filter-bar">
-        <label
-          className={`filter-pill${includeRetired ? " active" : ""}`}
-          style={{ cursor: "pointer" }}
-        >
-          <input
-            type="checkbox"
-            checked={includeRetired}
-            onChange={(e) => handleRetiredToggle(e.target.checked)}
-          />
+        <label className={`filter-pill${includeRetired ? " active" : ""}`} style={{ cursor: "pointer" }}>
+          <input type="checkbox" checked={includeRetired} onChange={(e) => handleRetiredToggle(e.target.checked)} />
           Include retired
         </label>
 
-        <select
-          className="filter-select"
-          value={categoryFilter}
-          onChange={(e) => handleCategoryChange(e.target.value)}
-        >
+        <select className="filter-select" value={categoryFilter} onChange={(e) => handleCategoryChange(e.target.value)}>
           <option value="all">All categories</option>
           <option value="v2">V2</option>
           <option value="v3">V3</option>
@@ -193,13 +193,34 @@ export function VaultsPanel() {
           className="search-input"
           placeholder="Search vaults..."
           value={search}
-          onChange={(e) => { setSearch(e.target.value); setPage(0); }}
+          onChange={(e) => {
+            setSearch(e.target.value);
+            setPage(0);
+          }}
         />
 
         <span className="text-dim" style={{ fontSize: "0.78rem", marginLeft: "auto" }}>
           {filteredCount} vaults &middot; {fmt(filteredTvl)} TVL
         </span>
-        <button className="btn-export" onClick={() => exportCSV("vaults.csv", ["Vault", "Address", "Chain", "Category", "Type", "TVL"], sortedVaults.map(v => [v.name || "", v.address, CHAIN_NAMES[v.chainId] || String(v.chainId), v.category, v.vaultType === 1 ? "Allocator" : v.vaultType === 2 ? "Strategy" : "-", v.tvlUsd]))}>Export CSV</button>
+        <button
+          className="btn-export"
+          onClick={() =>
+            exportCSV(
+              "vaults.csv",
+              ["Vault", "Address", "Chain", "Category", "Type", "TVL"],
+              sortedVaults.map((v) => [
+                v.name || "",
+                v.address,
+                CHAIN_NAMES[v.chainId] || String(v.chainId),
+                v.category,
+                v.vaultType === 1 ? "Allocator" : v.vaultType === 2 ? "Strategy" : "-",
+                v.tvlUsd,
+              ]),
+            )
+          }
+        >
+          Export CSV
+        </button>
       </div>
 
       {/* ── Vaults Table ── */}
@@ -221,10 +242,7 @@ export function VaultsPanel() {
                 const overlapAmt = vaultOverlapMap.get(v.address.toLowerCase());
                 const barPct = maxTvl > 0 ? (v.tvlUsd / maxTvl) * 100 : 0;
                 const fillClass =
-                  v.category === "v2" ? "fill-blue"
-                  : v.category === "v3" ? "fill-green"
-                  : v.category === "curation" ? "fill-yellow"
-                  : "";
+                  v.category === "v2" ? "fill-blue" : v.category === "v3" ? "fill-green" : v.category === "curation" ? "fill-yellow" : "";
 
                 return (
                   <tr key={`${v.chainId}:${v.address}`} onClick={() => setDrawerVault(v)} style={{ cursor: "pointer" }}>
@@ -232,7 +250,7 @@ export function VaultsPanel() {
                     <td>
                       <div className="vault-name">
                         <span title={v.name || v.address}>
-                          {v.name ? (v.name.length > 30 ? v.name.slice(0, 30) + "..." : v.name) : "-"}
+                          {v.name ? (v.name.length > 30 ? `${v.name.slice(0, 30)}...` : v.name) : "-"}
                         </span>
                         {v.isRetired && (
                           <span
@@ -279,25 +297,18 @@ export function VaultsPanel() {
                     <td>{categoryBadge(v.category)}</td>
 
                     {/* Type */}
-                    <td className="text-dim">
-                      {v.vaultType === 1 ? "Allocator" : v.vaultType === 2 ? "Strategy" : "-"}
-                    </td>
+                    <td className="text-dim">{v.vaultType === 1 ? "Allocator" : v.vaultType === 2 ? "Strategy" : "-"}</td>
 
                     {/* TVL with inline bar */}
                     <td className="text-right">
-                      <div style={{ fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>
-                        {fmt(v.tvlUsd)}
-                      </div>
+                      <div style={{ fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>{fmt(v.tvlUsd)}</div>
                       {overlapAmt != null && overlapAmt > 0 && (
                         <div className="text-yellow" style={{ fontSize: "0.68rem" }}>
                           -{fmt(overlapAmt)} overlap
                         </div>
                       )}
                       <div className="inline-bar-track" style={{ maxWidth: 80, marginTop: 3, marginLeft: "auto" }}>
-                        <div
-                          className={`inline-bar-fill ${fillClass}`}
-                          style={{ width: `${barPct}%` }}
-                        />
+                        <div className={`inline-bar-fill ${fillClass}`} style={{ width: `${barPct}%` }} />
                       </div>
                     </td>
                   </tr>
@@ -317,24 +328,14 @@ export function VaultsPanel() {
             borderTop: "1px solid var(--border)",
           }}
         >
-          <button
-            className="page-btn"
-            disabled={currentPage === 0}
-            onClick={() => setPage(currentPage - 1)}
-          >
+          <button className="page-btn" disabled={currentPage === 0} onClick={() => setPage(currentPage - 1)}>
             Prev
           </button>
           <span className="text-dim" style={{ fontSize: "0.78rem" }}>
             Page {currentPage + 1} of {totalPages}
-            <span style={{ marginLeft: "0.5rem", color: "var(--text-3)" }}>
-              ({filteredCount} vaults)
-            </span>
+            <span style={{ marginLeft: "0.5rem", color: "var(--text-3)" }}>({filteredCount} vaults)</span>
           </span>
-          <button
-            className="page-btn"
-            disabled={currentPage >= totalPages - 1}
-            onClick={() => setPage(currentPage + 1)}
-          >
+          <button className="page-btn" disabled={currentPage >= totalPages - 1} onClick={() => setPage(currentPage + 1)}>
             Next
           </button>
         </div>
@@ -355,9 +356,7 @@ export function VaultsPanel() {
               flexWrap: "wrap",
             }}
           >
-            <span style={{ fontSize: "1.1rem", fontWeight: 700, color: "var(--yellow)" }}>
-              {fmt(overlap.totalOverlap)}
-            </span>
+            <span style={{ fontSize: "1.1rem", fontWeight: 700, color: "var(--yellow)" }}>{fmt(overlap.totalOverlap)}</span>
             <span className="text-dim" style={{ fontSize: "0.78rem" }}>
               {overlap.count} flows
             </span>
@@ -404,7 +403,9 @@ export function VaultsPanel() {
                     <td>
                       <div style={{ display: "flex", alignItems: "center", gap: "0.35rem" }}>
                         {categoryBadge(o.sourceCategory)}
-                        <span className="text-dim" style={{ fontSize: "0.7rem" }}>&#8594;</span>
+                        <span className="text-dim" style={{ fontSize: "0.7rem" }}>
+                          &#8594;
+                        </span>
                         {categoryBadge(o.targetCategory)}
                       </div>
                     </td>
@@ -429,10 +430,7 @@ export function VaultsPanel() {
           </div>
 
           {overlap.count > 20 && (
-            <div
-              className="text-dim"
-              style={{ textAlign: "center", padding: "0.75rem 0 0.25rem", fontSize: "0.75rem" }}
-            >
+            <div className="text-dim" style={{ textAlign: "center", padding: "0.75rem 0 0.25rem", fontSize: "0.75rem" }}>
               Showing top 20 of {overlap.count} overlap flows
             </div>
           )}

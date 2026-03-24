@@ -3,10 +3,10 @@
  * Builds a tree of vault→vault fee chains where capital flows through
  * multiple fee-taking allocator vaults.
  */
-import { db, vaults, feeConfigs } from "@yearn-tvl/db";
-import { eq, and } from "drizzle-orm";
-import type { FeeStackNode, FeeStackChain, FeeStackSummary } from "@yearn-tvl/shared";
-import { getAuditTree, type AuditVault } from "./audit.js";
+import { db, feeConfigs, vaults } from "@yearn-tvl/db";
+import type { FeeStackChain, FeeStackNode, FeeStackSummary } from "@yearn-tvl/shared";
+import { and, eq } from "drizzle-orm";
+import { type AuditVault, getAuditTree } from "./audit.js";
 import { latestFeeConfigIds } from "./queries.js";
 
 const MAX_DEPTH = 10;
@@ -27,16 +27,15 @@ async function loadFeeRatesByAddress(): Promise<Map<string, FeeRate>> {
       managementFee: feeConfigs.managementFee,
     })
     .from(feeConfigs)
-    .innerJoin(latestFees, and(
-      eq(feeConfigs.vaultId, latestFees.vaultId),
-      eq(feeConfigs.id, latestFees.maxId),
-    ))
+    .innerJoin(latestFees, and(eq(feeConfigs.vaultId, latestFees.vaultId), eq(feeConfigs.id, latestFees.maxId)))
     .innerJoin(vaults, eq(feeConfigs.vaultId, vaults.id));
 
-  return new Map(rows.map((r) => [
-    `${r.chainId}:${r.address.toLowerCase()}`,
-    { performanceFee: r.performanceFee || 0, managementFee: r.managementFee || 0 },
-  ]));
+  return new Map(
+    rows.map((r) => [
+      `${r.chainId}:${r.address.toLowerCase()}`,
+      { performanceFee: r.performanceFee || 0, managementFee: r.managementFee || 0 },
+    ]),
+  );
 }
 
 function buildVaultLookup(auditVaults: AuditVault[]): Map<string, AuditVault> {
@@ -168,10 +167,7 @@ function capitalWeightedFee(root: FeeStackNode): { perfFee: number; mgmtFee: num
 }
 
 export async function getFeeStackAnalysis(): Promise<FeeStackSummary> {
-  const [auditTree, feeByAddress] = await Promise.all([
-    getAuditTree(),
-    loadFeeRatesByAddress(),
-  ]);
+  const [auditTree, feeByAddress] = await Promise.all([getAuditTree(), loadFeeRatesByAddress()]);
   const vaultLookup = buildVaultLookup(auditTree.vaults);
 
   const chains: FeeStackChain[] = [];
@@ -208,9 +204,7 @@ export async function getFeeStackAnalysis(): Promise<FeeStackSummary> {
 
   const maxDepth = chains.reduce((m, c) => Math.max(m, c.maxDepth), 0);
   const maxEffectivePerfFee = chains.reduce((m, c) => Math.max(m, c.effectivePerfFee), 0);
-  const avgEffectivePerfFee = chains.length > 0
-    ? Math.round(chains.reduce((s, c) => s + c.effectivePerfFee, 0) / chains.length)
-    : 0;
+  const avgEffectivePerfFee = chains.length > 0 ? Math.round(chains.reduce((s, c) => s + c.effectivePerfFee, 0) / chains.length) : 0;
   const totalStackedCapital = chains.reduce((s, c) => s + c.root.capitalUsd, 0);
 
   return {

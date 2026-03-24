@@ -3,10 +3,10 @@
  * Returns all vaults with their strategies and recursive allocation chains
  * for the Audit dashboard page.
  */
-import { db, vaults, strategies, strategyDebts } from "@yearn-tvl/db";
-import { eq, and, sql } from "drizzle-orm";
+import { db, strategies, strategyDebts, vaults } from "@yearn-tvl/db";
 import type { VaultCategory } from "@yearn-tvl/shared";
-import { STRATEGY_OVERLAP_REGISTRY, CROSS_CHAIN_OVERLAP_REGISTRY, groupBy, toMap } from "@yearn-tvl/shared";
+import { CROSS_CHAIN_OVERLAP_REGISTRY, groupBy, STRATEGY_OVERLAP_REGISTRY, toMap } from "@yearn-tvl/shared";
+import { and, eq, sql } from "drizzle-orm";
 import { getLatestSnapshots } from "./queries.js";
 
 export interface AuditStrategy {
@@ -38,25 +38,23 @@ export interface AuditTreeResponse {
   vaults: AuditVault[];
 }
 
-export const getAuditTree = async (filters?: {
-  chainId?: number;
-}): Promise<AuditTreeResponse> => {
+export const getAuditTree = async (filters?: { chainId?: number }): Promise<AuditTreeResponse> => {
   const snapshots = await getLatestSnapshots();
 
   // Load all vaults for lookup
-  const allVaults = await db.select({
-    id: vaults.id,
-    address: vaults.address,
-    chainId: vaults.chainId,
-    name: vaults.name,
-    category: vaults.category,
-    vaultType: vaults.vaultType,
-    isRetired: vaults.isRetired,
-  }).from(vaults);
+  const allVaults = await db
+    .select({
+      id: vaults.id,
+      address: vaults.address,
+      chainId: vaults.chainId,
+      name: vaults.name,
+      category: vaults.category,
+      vaultType: vaults.vaultType,
+      isRetired: vaults.isRetired,
+    })
+    .from(vaults);
 
-  const vaultByAddress = new Map(
-    allVaults.map((v) => [`${v.chainId}:${v.address.toLowerCase()}`, v]),
-  );
+  const vaultByAddress = new Map(allVaults.map((v) => [`${v.chainId}:${v.address.toLowerCase()}`, v]));
 
   // Load all strategies grouped by vault
   const allStrategies = await db.select().from(strategies);
@@ -78,19 +76,15 @@ export const getAuditTree = async (filters?: {
       currentDebtUsd: strategyDebts.currentDebtUsd,
     })
     .from(strategyDebts)
-    .innerJoin(latestDebtSub, and(
-      eq(strategyDebts.strategyId, latestDebtSub.strategyId),
-      eq(strategyDebts.id, latestDebtSub.maxId),
-    ));
-  const debtByStrategy = toMap(allDebts, (d) => d.strategyId, (d) => d.currentDebtUsd);
+    .innerJoin(latestDebtSub, and(eq(strategyDebts.strategyId, latestDebtSub.strategyId), eq(strategyDebts.id, latestDebtSub.maxId)));
+  const debtByStrategy = toMap(
+    allDebts,
+    (d) => d.strategyId,
+    (d) => d.currentDebtUsd,
+  );
 
   // Build registry lookup: strategyAddr+chainId → target vault info
-  const registryByKey = new Map(
-    STRATEGY_OVERLAP_REGISTRY.map((e) => [
-      `${e.chainId}:${e.strategyAddress.toLowerCase()}`,
-      e,
-    ]),
-  );
+  const registryByKey = new Map(STRATEGY_OVERLAP_REGISTRY.map((e) => [`${e.chainId}:${e.strategyAddress.toLowerCase()}`, e]));
 
   // Build audit vaults from snapshots
   const auditVaults: AuditVault[] = [];
@@ -168,9 +162,7 @@ export const getAuditTree = async (filters?: {
   );
 
   // Cross-chain overlap: retired vaults whose capital migrated to another chain
-  const crossChainAddresses = new Set(
-    CROSS_CHAIN_OVERLAP_REGISTRY.map((e) => `${e.sourceChainId}:${e.sourceVaultAddress.toLowerCase()}`),
-  );
+  const crossChainAddresses = new Set(CROSS_CHAIN_OVERLAP_REGISTRY.map((e) => `${e.sourceChainId}:${e.sourceVaultAddress.toLowerCase()}`));
   const crossChainOverlap = auditVaults
     .filter((v) => v.isRetired && crossChainAddresses.has(`${v.chainId}:${v.address.toLowerCase()}`))
     .reduce((sum, v) => sum + v.tvlUsd, 0);

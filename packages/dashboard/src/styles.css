@@ -1,11 +1,14 @@
 /* ========================================= */
-/* Yearn Metrics — Nansen-inspired dark theme */
+/* Yearn Metrics — Dark + Light theme        */
 /* ========================================= */
 
-:root {
+/* ---- Dark Theme (default) ---- */
+:root,
+[data-theme="dark"] {
   --bg: #0b0e11;
   --bg-raised: #101318;
   --surface: #151a23;
+  --surface-2: #1a1f2b;
   --surface-hover: #1b2130;
   --border: #1f2637;
   --border-light: #2a3245;
@@ -27,9 +30,41 @@
   --purple-dim: rgba(167, 139, 250, 0.10);
   --orange: #fb923c;
   --chart-grid: rgba(31, 38, 55, 0.6);
+  --shadow: rgba(0, 0, 0, 0.4);
 }
 
-/* Reset */
+/* ---- Light Theme ---- */
+[data-theme="light"] {
+  --bg: #f5f6f8;
+  --bg-raised: #ffffff;
+  --surface: #ffffff;
+  --surface-2: #f0f1f3;
+  --surface-hover: #f0f1f3;
+  --border: #e2e5ea;
+  --border-light: #d1d5dc;
+  --text: #1a1d23;
+  --text-2: #5c6370;
+  --text-3: #8b929e;
+  --accent: #0ea37a;
+  --accent-dim: rgba(14, 163, 122, 0.10);
+  --accent-mid: rgba(14, 163, 122, 0.20);
+  --green: #0a9b65;
+  --green-dim: rgba(10, 155, 101, 0.10);
+  --red: #d63950;
+  --red-dim: rgba(214, 57, 80, 0.10);
+  --yellow: #c59700;
+  --yellow-dim: rgba(197, 151, 0, 0.10);
+  --blue: #2563eb;
+  --blue-dim: rgba(37, 99, 235, 0.10);
+  --purple: #7c3aed;
+  --purple-dim: rgba(124, 58, 237, 0.10);
+  --orange: #ea580c;
+  --chart-grid: rgba(226, 229, 234, 0.6);
+  --shadow: rgba(0, 0, 0, 0.08);
+}
+
+/* ========= Reset ========= */
+
 *, *::before, *::after {
   margin: 0;
   padding: 0;
@@ -46,7 +81,7 @@ body {
   font-feature-settings: 'tnum' 1, 'ss01' 1;
 }
 
-/* ---- Layout: Sidebar + Main ---- */
+/* ========= Layout: Sidebar + Main ========= */
 
 .app {
   display: flex;
@@ -145,7 +180,8 @@ body {
   background: var(--surface);
 }
 
-.sidebar-nav button.active {
+.sidebar-nav button.active,
+.sidebar-nav button[aria-current="page"] {
   color: var(--accent);
   background: var(--accent-dim);
   border-left-color: var(--accent);
@@ -200,7 +236,7 @@ body {
   color: var(--text-2);
 }
 
-/* ---- Main Content ---- */
+/* ========= Main Content ========= */
 
 .main-area {
   flex: 1;
@@ -217,7 +253,7 @@ body {
   margin-left: 56px;
 }
 
-/* ---- Top Bar (in main area) ---- */
+/* ---- Top Bar ---- */
 
 .top-bar {
   display: flex;
@@ -234,7 +270,7 @@ body {
   color: var(--text);
 }
 
-/* ---- Toolbar (below nav) ---- */
+/* ---- Toolbar ---- */
 
 .toolbar {
   display: flex;
@@ -250,6 +286,53 @@ body {
   gap: 0.5rem;
   margin-left: auto;
 }
+
+/* ---- Freshness Indicator ---- */
+
+.freshness-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.freshness-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+  background: var(--green);
+  box-shadow: 0 0 4px var(--green);
+}
+
+.freshness-dot.stale {
+  background: var(--yellow);
+  box-shadow: 0 0 4px var(--yellow);
+}
+
+/* ---- Theme Toggle ---- */
+
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: all 0.15s;
+}
+
+.theme-toggle:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-dim);
+}
+
+/* ---- Kbd Hint Button ---- */
 
 .kbd-hint {
   display: inline-flex;
@@ -307,7 +390,8 @@ body {
   border-right: 1px solid var(--border);
 }
 
-.density-toggle button.active {
+.density-toggle button.active,
+.density-toggle button[aria-pressed="true"] {
   background: var(--accent-dim);
   color: var(--accent);
 }
@@ -358,7 +442,7 @@ body {
   color: var(--accent);
 }
 
-/* ---- Cards ---- */
+/* ========= Cards ========= */
 
 .card {
   background: var(--surface);
@@ -377,7 +461,7 @@ body {
   margin-bottom: 1rem;
 }
 
-/* ---- Metric Grid ---- */
+/* ========= Metric Grid ========= */
 
 .metric-grid {
   display: grid;
@@ -430,7 +514,7 @@ body {
   margin-top: 0.25rem;
 }
 
-/* ---- Tables ---- */
+/* ========= Tables ========= */
 
 table {
   width: 100%;
@@ -460,6 +544,10 @@ td {
   white-space: nowrap;
 }
 
+[data-theme="light"] td {
+  border-bottom-color: var(--border);
+}
+
 tbody tr {
   transition: background 0.1s;
 }
@@ -478,7 +566,7 @@ th.text-right {
   font-variant-numeric: tabular-nums;
 }
 
-/* ---- Text Utilities ---- */
+/* ========= Text Utilities ========= */
 
 .text-right { text-align: right; }
 .text-center { text-align: center; }
@@ -489,7 +577,7 @@ th.text-right {
 .text-dim { color: var(--text-2); }
 .text-accent { color: var(--accent); }
 
-/* ---- Badges ---- */
+/* ========= Badges ========= */
 
 .badge {
   display: inline-flex;
@@ -561,7 +649,7 @@ th.text-right {
 .confidence-medium { background: var(--yellow-dim); color: var(--yellow); }
 .confidence-low { background: var(--red-dim); color: var(--red); }
 
-/* ---- Filter Controls ---- */
+/* ========= Filter Controls ========= */
 
 .filter-bar {
   display: flex;
@@ -636,6 +724,11 @@ th.text-right {
   color: var(--text-2);
 }
 
+.sortable:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
 /* ---- Pagination ---- */
 
 .page-btn {
@@ -661,7 +754,7 @@ th.text-right {
   background: var(--accent-dim);
 }
 
-/* ---- States ---- */
+/* ========= States ========= */
 
 .loading {
   text-align: center;
@@ -675,6 +768,19 @@ th.text-right {
   padding: 3rem;
   color: var(--red);
   font-size: 0.85rem;
+}
+
+/* ---- Error with retry ---- */
+
+.error-retry {
+  text-align: center;
+  padding: 3rem;
+}
+
+.error-retry .error-message {
+  color: var(--red);
+  font-size: 0.85rem;
+  margin-bottom: 1rem;
 }
 
 /* ---- Skeleton Loading ---- */
@@ -727,6 +833,13 @@ th.text-right {
   margin-top: 0.5rem;
 }
 
+/* Depositor skeleton */
+.skeleton-depositor {
+  height: 20px;
+  margin-bottom: 0.5rem;
+  width: 100%;
+}
+
 /* ---- Panel Fade In ---- */
 
 @keyframes fadeIn {
@@ -738,7 +851,7 @@ th.text-right {
   animation: fadeIn 0.25s ease-out;
 }
 
-/* ---- Search Input ---- */
+/* ========= Search Input ========= */
 
 .search-input {
   background: var(--bg-raised);
@@ -765,7 +878,7 @@ th.text-right {
   color: var(--text-3);
 }
 
-/* ---- Export Button ---- */
+/* ========= Export Button ========= */
 
 .btn-export {
   display: inline-flex;
@@ -789,24 +902,7 @@ th.text-right {
   background: var(--accent-dim);
 }
 
-/* ---- Data Freshness ---- */
-
-.freshness-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  display: inline-block;
-  margin-right: 0.35rem;
-  background: var(--green);
-  box-shadow: 0 0 4px var(--green);
-}
-
-.freshness-dot.stale {
-  background: var(--yellow);
-  box-shadow: 0 0 4px var(--yellow);
-}
-
-/* ---- Layout Helpers ---- */
+/* ========= Layout Helpers ========= */
 
 .row {
   display: grid;
@@ -879,7 +975,8 @@ th.text-right {
   color: var(--text-2);
 }
 
-.composition-legend > span {
+.composition-legend > span,
+.composition-legend > div {
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
@@ -909,6 +1006,10 @@ th.text-right {
   padding: 0.5rem 0;
   border-bottom: 1px solid rgba(31, 38, 55, 0.4);
   font-size: 0.82rem;
+}
+
+[data-theme="light"] .stat-row {
+  border-bottom-color: var(--border);
 }
 
 .stat-row:last-child {
@@ -980,7 +1081,7 @@ th.text-right {
   border-radius: 2px;
 }
 
-/* ---- Responsive ---- */
+/* ========= Responsive ========= */
 
 @media (max-width: 1024px) {
   .row {
@@ -1024,7 +1125,7 @@ th.text-right {
   }
 }
 
-/* ---- Audit Tree ---- */
+/* ========= Audit Tree ========= */
 
 .audit-tree {
   padding: 0 !important;
@@ -1040,6 +1141,10 @@ th.text-right {
 
 .audit-vault-node {
   border-bottom: 1px solid rgba(31, 38, 55, 0.4);
+}
+
+[data-theme="light"] .audit-vault-node {
+  border-bottom-color: var(--border);
 }
 
 .audit-vault-node:last-child {
@@ -1095,6 +1200,62 @@ th.text-right {
   white-space: nowrap;
 }
 
+/* ── Audit tree right-aligned columns ── */
+
+.audit-cols {
+  display: flex;
+  align-items: center;
+  margin-left: auto;
+  flex-shrink: 0;
+  gap: 0;
+}
+
+.audit-cols-header {
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-3);
+}
+
+.audit-col-strats {
+  width: 70px;
+  text-align: right;
+  font-size: 0.7rem;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+
+.audit-col-tvl {
+  width: 85px;
+  text-align: right;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.audit-col-overlaps {
+  width: 95px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.audit-col-counted {
+  width: 85px;
+  text-align: right;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--green);
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+.audit-col-empty {
+  color: var(--text-3);
+  opacity: 0.3;
+}
+
 .audit-overlap-count {
   font-size: 0.68rem;
   color: var(--yellow);
@@ -1111,12 +1272,28 @@ th.text-right {
 }
 
 .audit-strategy-row {
-  background: rgba(0, 0, 0, 0.15);
-  border-top: 1px solid rgba(31, 38, 55, 0.25);
+  border-top: 1px solid rgba(46, 230, 182, 0.08);
+}
+
+[data-theme="light"] .audit-strategy-row {
+  border-top-color: var(--border);
 }
 
 .audit-strategy-row:hover {
-  background: rgba(0, 0, 0, 0.25);
+  filter: brightness(1.3);
+}
+
+[data-theme="light"] .audit-strategy-row:hover {
+  filter: brightness(0.97);
+}
+
+/* Overlap strategies (deducted from counted TVL) — visually deprioritized */
+.audit-strategy-deducted {
+  opacity: 0.45;
+}
+
+.audit-strategy-deducted:hover {
+  opacity: 0.7;
 }
 
 .audit-arrow {
@@ -1133,13 +1310,35 @@ th.text-right {
   max-width: 260px;
 }
 
-.audit-debt {
-  font-variant-numeric: tabular-nums;
-  color: var(--text-2);
-  font-size: 0.78rem;
-  white-space: nowrap;
+a.audit-strategy-name,
+a.audit-vault-name {
+  text-decoration: none;
+  color: inherit;
 }
 
+a.audit-strategy-name:hover,
+a.audit-vault-name:hover {
+  color: var(--accent);
+}
+
+/* Strategy debt — subdued by default */
+.audit-debt {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
+  font-size: 0.72rem;
+  white-space: nowrap;
+  opacity: 0.7;
+}
+
+/* Prominent debt when strategy has overlap (placed next to overlap tag) */
+.audit-debt.audit-debt-prominent {
+  color: var(--text);
+  font-weight: 600;
+  font-size: 0.78rem;
+  opacity: 1;
+}
+
+/* Legacy overlap tag (kept for compatibility) */
 .audit-overlap-tag {
   font-size: 0.65rem;
   padding: 0.1rem 0.4rem;
@@ -1155,6 +1354,61 @@ th.text-right {
 .audit-overlap-tag.registry {
   color: var(--yellow);
   background: var(--yellow-dim);
+}
+
+/* Prominent overlap tag — larger, bolder, more visible */
+.audit-overlap-tag-prominent {
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.2rem 0.55rem;
+  border-radius: 5px;
+  white-space: nowrap;
+  letter-spacing: 0.02em;
+}
+
+.audit-overlap-tag-prominent.auto {
+  color: var(--blue);
+  background: var(--blue-dim);
+  border: 1px solid rgba(59, 130, 246, 0.25);
+}
+
+.audit-overlap-tag-prominent.registry {
+  color: var(--yellow);
+  background: var(--yellow-dim);
+  border: 1px solid rgba(240, 185, 11, 0.25);
+}
+
+/* Inline target vault info on strategy rows */
+.audit-target-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-left: 0.25rem;
+}
+
+.audit-target-arrow {
+  color: var(--accent);
+  font-size: 0.7rem;
+  opacity: 0.6;
+}
+
+.audit-target-name {
+  font-weight: 600;
+  color: var(--text);
+  font-size: 0.78rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 220px;
+}
+
+/* Top-level vault reference arrow */
+.audit-toplevel-ref {
+  color: var(--accent);
+  font-size: 0.72rem;
+  opacity: 0.7;
+  cursor: default;
+  flex-shrink: 0;
 }
 
 .audit-cycle-tag {
@@ -1186,12 +1440,15 @@ th.text-right {
 /* Target vault inside a strategy chain */
 
 .audit-target-vault-row {
-  background: rgba(46, 230, 182, 0.04);
-  border-top: 1px solid rgba(46, 230, 182, 0.1);
+  border-top: 1px solid rgba(46, 230, 182, 0.08);
 }
 
 .audit-target-vault-row:hover {
-  background: rgba(46, 230, 182, 0.08);
+  filter: brightness(1.3);
+}
+
+[data-theme="light"] .audit-target-vault-row:hover {
+  filter: brightness(0.97);
 }
 
 .audit-vault-indicator {
@@ -1203,4 +1460,30 @@ th.text-right {
   border-radius: 3px;
   letter-spacing: 0.04em;
   flex-shrink: 0;
+}
+
+/* ========= Accessibility ========= */
+
+/* Focus visible for keyboard navigation */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Screen reader only (for chart alternatives) */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
 }

@@ -25,10 +25,7 @@ interface FetchAllPagesOpts<T> {
  * Fetch all pages from a paginated REST endpoint.
  * Handles retry with exponential backoff and 429 rate limiting.
  */
-export async function fetchAllPages<T>(
-  url: string,
-  opts: FetchAllPagesOpts<T>,
-): Promise<T[]> {
+export async function fetchAllPages<T>(url: string, opts: FetchAllPagesOpts<T>): Promise<T[]> {
   const { extract, nextPage, maxPages = 100, delayMs = 0, retries = DEFAULT_RETRIES, headers } = opts;
   const results: T[] = [];
   let currentUrl: string | null = url;
@@ -55,10 +52,7 @@ export async function fetchAllPages<T>(
  * Fetch a single URL with exponential backoff retry.
  * Respects Retry-After headers on 429 responses.
  */
-export async function fetchWithRetry(
-  url: string,
-  opts?: { retries?: number; headers?: Record<string, string> },
-): Promise<unknown> {
+export async function fetchWithRetry(url: string, opts?: { retries?: number; headers?: Record<string, string> }): Promise<unknown> {
   const maxAttempts = (opts?.retries ?? DEFAULT_RETRIES) + 1;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -97,10 +91,7 @@ export async function fetchWithRetry(
  * Generic retry wrapper with exponential backoff.
  * Works with any async function (GraphQL POST, RPC calls, etc).
  */
-export async function retryWithBackoff<T>(
-  fn: () => Promise<T>,
-  opts?: { retries?: number; label?: string },
-): Promise<T> {
+export async function retryWithBackoff<T>(fn: () => Promise<T>, opts?: { retries?: number; label?: string }): Promise<T> {
   const maxAttempts = (opts?.retries ?? DEFAULT_RETRIES) + 1;
   let lastError: Error | null = null;
 

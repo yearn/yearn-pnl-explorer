@@ -5,15 +5,14 @@
  * Run manually: bun run scripts/detect-overlaps.ts
  * Output: candidates to add to STRATEGY_OVERLAP_REGISTRY in packages/shared/src/strategy-overlaps.ts
  */
-import { createPublicClient, http, parseAbi, defineChain, type Address } from "viem";
-import { mainnet, optimism, base, arbitrum, polygon, fantom, gnosis } from "viem/chains";
-import { db, vaults, strategies, strategyDebts } from "@yearn-tvl/db";
-import { eq, and, desc } from "drizzle-orm";
-import { groupBy } from "@yearn-tvl/shared";
 
-const ERC20_ABI = parseAbi([
-  "function balanceOf(address) view returns (uint256)",
-]);
+import { db, strategies, strategyDebts, vaults } from "@yearn-tvl/db";
+import { groupBy } from "@yearn-tvl/shared";
+import { desc, eq } from "drizzle-orm";
+import { type Address, createPublicClient, defineChain, http, parseAbi } from "viem";
+import { arbitrum, base, fantom, gnosis, mainnet, optimism, polygon } from "viem/chains";
+
+const ERC20_ABI = parseAbi(["function balanceOf(address) view returns (uint256)"]);
 
 const katana = defineChain({
   id: 747474,
@@ -51,32 +50,32 @@ const getClient = (chainId: number) => {
 
 const main = async () => {
   // Get all vault addresses as potential "target vaults"
-  const allVaults = await db.select({
-    id: vaults.id,
-    address: vaults.address,
-    chainId: vaults.chainId,
-    name: vaults.name,
-    category: vaults.category,
-    isRetired: vaults.isRetired,
-  }).from(vaults);
+  const allVaults = await db
+    .select({
+      id: vaults.id,
+      address: vaults.address,
+      chainId: vaults.chainId,
+      name: vaults.name,
+      category: vaults.category,
+      isRetired: vaults.isRetired,
+    })
+    .from(vaults);
 
-  const vaultAddressSet = new Map(
-    allVaults.map((v) => [`${v.chainId}:${v.address.toLowerCase()}`, v]),
-  );
+  const vaultAddressSet = new Map(allVaults.map((v) => [`${v.chainId}:${v.address.toLowerCase()}`, v]));
 
   // Get all strategies with their latest debt
-  const allStrategies = await db.select({
-    id: strategies.id,
-    address: strategies.address,
-    chainId: strategies.chainId,
-    name: strategies.name,
-    vaultId: strategies.vaultId,
-  }).from(strategies);
+  const allStrategies = await db
+    .select({
+      id: strategies.id,
+      address: strategies.address,
+      chainId: strategies.chainId,
+      name: strategies.name,
+      vaultId: strategies.vaultId,
+    })
+    .from(strategies);
 
   // Filter to strategies not already matching a vault address (those are auto-detected)
-  const nonVaultStrategies = allStrategies.filter(
-    (s) => !vaultAddressSet.has(`${s.chainId}:${s.address.toLowerCase()}`),
-  );
+  const nonVaultStrategies = allStrategies.filter((s) => !vaultAddressSet.has(`${s.chainId}:${s.address.toLowerCase()}`));
 
   console.log(`Checking ${nonVaultStrategies.length} strategies for vault share holdings...\n`);
 

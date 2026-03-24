@@ -5,11 +5,12 @@
  *
  * Usage: bun run scripts/refresh-retired.ts [--chain 250] [--min-assets 1000]
  */
-import { createPublicClient, http, formatUnits, type Chain, type Address } from "viem";
-import { mainnet, optimism, polygon, base, arbitrum } from "viem/chains";
-import { db, vaults, vaultSnapshots } from "@yearn-tvl/db";
-import { eq, and, sql } from "drizzle-orm";
+
+import { db, vaultSnapshots } from "@yearn-tvl/db";
 import { CHAIN_PREFIXES } from "@yearn-tvl/shared";
+import { sql } from "drizzle-orm";
+import { type Address, type Chain, createPublicClient, formatUnits, http } from "viem";
+import { arbitrum, base, mainnet, optimism, polygon } from "viem/chains";
 
 const fantom: Chain = {
   id: 250,
@@ -19,7 +20,12 @@ const fantom: Chain = {
 };
 
 const CHAIN_MAP: Record<number, Chain> = {
-  1: mainnet, 10: optimism, 137: polygon, 250: fantom, 8453: base, 42161: arbitrum,
+  1: mainnet,
+  10: optimism,
+  137: polygon,
+  250: fantom,
+  8453: base,
+  42161: arbitrum,
 };
 
 const TOTAL_ASSETS_ABI = [
@@ -34,9 +40,16 @@ const minAssets = args.includes("--min-assets") ? Number(args[args.indexOf("--mi
 const main = async () => {
   // Find retired vaults with non-zero totalAssets in their latest snapshot
   const retiredVaults = db.all<{
-    id: number; address: string; chainId: number; name: string;
-    assetAddress: string; assetSymbol: string; assetDecimals: number;
-    snapshotId: number; oldTvlUsd: number; oldTotalAssets: string;
+    id: number;
+    address: string;
+    chainId: number;
+    name: string;
+    assetAddress: string;
+    assetSymbol: string;
+    assetDecimals: number;
+    snapshotId: number;
+    oldTvlUsd: number;
+    oldTotalAssets: string;
   }>(sql`
     SELECT v.id, v.address, v.chain_id as chainId, v.name,
            v.asset_address as assetAddress, v.asset_symbol as assetSymbol,
@@ -77,7 +90,7 @@ const main = async () => {
     const client = createPublicClient({ chain, transport: http(rpcUrl) });
 
     // Read totalAssets on-chain for each vault
-    const onChainData: { vault: typeof chainVaults[0]; totalAssets: bigint }[] = [];
+    const onChainData: { vault: (typeof chainVaults)[0]; totalAssets: bigint }[] = [];
 
     for (const vault of chainVaults) {
       try {
@@ -125,7 +138,7 @@ const main = async () => {
       const priceInfo = priceKey ? prices[priceKey] : null;
 
       if (priceInfo && priceInfo.price > 0) {
-        tvlUsd = Number(totalAssets) / 10 ** decimals * priceInfo.price;
+        tvlUsd = (Number(totalAssets) / 10 ** decimals) * priceInfo.price;
       } else {
         // Stablecoin fallback
         const stables = ["USDC", "USDT", "DAI", "FRAX", "LUSD", "MIM", "DOLA"];
@@ -147,7 +160,9 @@ const main = async () => {
         });
 
         const delta = tvlUsd - oldTvl;
-        console.log(`    ${vault.name}: $${(oldTvl / 1e3).toFixed(1)}K → $${(tvlUsd / 1e3).toFixed(1)}K (${delta > 0 ? "+" : ""}$${(delta / 1e3).toFixed(1)}K)`);
+        console.log(
+          `    ${vault.name}: $${(oldTvl / 1e3).toFixed(1)}K → $${(tvlUsd / 1e3).toFixed(1)}K (${delta > 0 ? "+" : ""}$${(delta / 1e3).toFixed(1)}K)`,
+        );
         updated++;
       }
 

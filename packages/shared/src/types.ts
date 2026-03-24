@@ -1,9 +1,9 @@
 export type VaultCategory = "v1" | "v2" | "v3" | "curation";
 
 export interface TvlSummary {
-  totalTvl: number;       // active + retired - overlap
-  activeTvl: number;      // active only, no overlap deduction
-  retiredTvl: number;     // retired only
+  totalTvl: number; // active + retired - overlap
+  activeTvl: number; // active only, no overlap deduction
+  retiredTvl: number; // retired only
   v1Tvl: number;
   v2Tvl: number;
   v3Tvl: number;
@@ -49,6 +49,12 @@ export interface OverlapDetail {
   label?: string;
 }
 
+export interface GapComponent {
+  label: string;
+  amount: number;
+  explanation: string;
+}
+
 export interface DefillamaComparison {
   ourTotal: number;
   defillamaTotal: number;
@@ -56,6 +62,10 @@ export interface DefillamaComparison {
   differencePercent: number;
   retiredTvl: number;
   overlapDeducted: number;
+  crossChainOverlap: number;
+  grossTvl: number;
+  gapComponents: GapComponent[];
+  retiredTvlByChain: Record<string, number>;
   notes: string[];
   byChain: Array<{
     chain: string;
@@ -72,20 +82,46 @@ export interface DefillamaComparison {
   }>;
 }
 
+export interface VaultStickiness {
+  address: string;
+  chainId: number;
+  name: string | null;
+  currentTvl: number;
+  scores: {
+    "30d": StickinessScore | null;
+    "90d": StickinessScore | null;
+    "365d": StickinessScore | null;
+  };
+  history: Array<{ timestamp: number; tvlUsd: number }>;
+}
+
+export interface StickinessScore {
+  score: number;
+  grade: string;
+  dataPoints: number;
+}
+
+export interface TvlHistoryPoint {
+  timestamp: number;
+  tvlUsd: number;
+  chain?: string;
+  protocol?: string;
+}
+
 /** Fee stacking analysis types — tree structure for vault→vault fee chains */
 export interface FeeStackNode {
   vault: { address: string; chainId: number; name: string | null };
-  perfFee: number;      // bps
-  mgmtFee: number;      // bps
-  capitalUsd: number;   // debtUsd flowing into this vault
-  children: FeeStackNode[];  // downstream vaults this vault deposits into
+  perfFee: number; // bps
+  mgmtFee: number; // bps
+  capitalUsd: number; // debtUsd flowing into this vault
+  children: FeeStackNode[]; // downstream vaults this vault deposits into
 }
 
 export interface FeeStackChain {
   root: FeeStackNode;
   maxDepth: number;
-  effectivePerfFee: number;   // compound bps across deepest path
-  effectiveMgmtFee: number;   // additive bps across deepest path
+  effectivePerfFee: number; // compound bps across deepest path
+  effectiveMgmtFee: number; // additive bps across deepest path
 }
 
 export interface FeeStackSummary {

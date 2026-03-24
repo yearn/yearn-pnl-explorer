@@ -19,9 +19,9 @@
  *   --include-retired
  *   --category=<allocation|strategies|curators>
  */
-import { db, vaults, vaultSnapshots, strategies, strategyDebts, depositors } from "@yearn-tvl/db";
-import { eq, and, sql } from "drizzle-orm";
+import { db, depositors, strategies, strategyDebts, vaultSnapshots, vaults } from "@yearn-tvl/db";
 import { CHAIN_NAMES, STRATEGY_OVERLAP_REGISTRY } from "@yearn-tvl/shared";
+import { and, eq, sql } from "drizzle-orm";
 // Direct import from api package internals — workspace packages allow this
 import { getFeeSummary } from "../packages/api/src/services/fees.js";
 
@@ -77,10 +77,7 @@ export async function buildAudit(): Promise<ChainInfo[]> {
     })
     .from(vaults)
     .innerJoin(vaultSnapshots, eq(vaultSnapshots.vaultId, vaults.id))
-    .innerJoin(latestIds, and(
-      eq(vaultSnapshots.vaultId, latestIds.vaultId),
-      eq(vaultSnapshots.id, latestIds.maxId),
-    ));
+    .innerJoin(latestIds, and(eq(vaultSnapshots.vaultId, latestIds.vaultId), eq(vaultSnapshots.id, latestIds.maxId)));
 
   const vaultNameByAddr = new Map<string, string>();
   for (const r of rows) {
@@ -107,18 +104,10 @@ export async function buildAudit(): Promise<ChainInfo[]> {
     })
     .from(strategies)
     .innerJoin(strategyDebts, eq(strategyDebts.strategyId, strategies.id))
-    .innerJoin(latestDebtIds, and(
-      eq(strategyDebts.strategyId, latestDebtIds.strategyId),
-      eq(strategyDebts.id, latestDebtIds.maxId),
-    ));
+    .innerJoin(latestDebtIds, and(eq(strategyDebts.strategyId, latestDebtIds.strategyId), eq(strategyDebts.id, latestDebtIds.maxId)));
 
   const vaultAddrSet = new Set(rows.map((r) => `${r.chainId}:${r.address.toLowerCase()}`));
-  const registryByKey = new Map(
-    STRATEGY_OVERLAP_REGISTRY.map((e) => [
-      `${e.chainId}:${e.strategyAddress.toLowerCase()}`,
-      e,
-    ]),
-  );
+  const registryByKey = new Map(STRATEGY_OVERLAP_REGISTRY.map((e) => [`${e.chainId}:${e.strategyAddress.toLowerCase()}`, e]));
 
   const debtsByVault = new Map<number, StrategyInfo[]>();
   for (const d of debtRows) {
@@ -164,9 +153,7 @@ export async function buildAudit(): Promise<ChainInfo[]> {
       });
     }
     const chain = chainMap.get(r.chainId)!;
-    const strats = (debtsByVault.get(r.id) || [])
-      .filter((s) => s.debtUsd > 0)
-      .sort((a, b) => b.debtUsd - a.debtUsd);
+    const strats = (debtsByVault.get(r.id) || []).filter((s) => s.debtUsd > 0).sort((a, b) => b.debtUsd - a.debtUsd);
 
     const tvl = r.tvlUsd ?? 0;
     chain.tvlUsd += tvl;
@@ -287,8 +274,13 @@ async function cmdTvl(chains: ChainInfo[], opts: FilterOpts, tableMode: boolean)
 
 async function cmdOverlaps(chains: ChainInfo[], opts: FilterOpts, tableMode: boolean) {
   const overlaps: Array<{
-    sourceVault: string; sourceAddress: string; strategy: string;
-    targetVault: string; chainId: number; debtUsd: number; method: string;
+    sourceVault: string;
+    sourceAddress: string;
+    strategy: string;
+    targetVault: string;
+    chainId: number;
+    debtUsd: number;
+    method: string;
   }> = [];
 
   for (const chain of chains) {
@@ -313,14 +305,15 @@ async function cmdOverlaps(chains: ChainInfo[], opts: FilterOpts, tableMode: boo
 
   if (tableMode) {
     console.log(`Found ${overlaps.length} overlaps\n`);
-    console.log(padRight("Source", 30) + padRight("Target", 30) + padLeft("Debt USD", 14) + "  Method");
+    console.log(`${padRight("Source", 30) + padRight("Target", 30) + padLeft("Debt USD", 14)}  Method`);
     console.log("-".repeat(80));
     for (const o of overlaps) {
       console.log(
         padRight((o.sourceVault || "").slice(0, 28), 30) +
-        padRight((o.targetVault || "").slice(0, 28), 30) +
-        padLeft(fmtUsd(o.debtUsd), 14) +
-        "  " + o.method,
+          padRight((o.targetVault || "").slice(0, 28), 30) +
+          padLeft(fmtUsd(o.debtUsd), 14) +
+          "  " +
+          o.method,
       );
     }
   } else {
@@ -360,17 +353,23 @@ async function cmdVault(chains: ChainInfo[], address: string, tableMode: boolean
       }
     }
   } else {
-    console.log(JSON.stringify({
-      address: vault.address,
-      name: vault.name,
-      chain: chainName,
-      chainId,
-      category: vault.category,
-      vaultType: vault.vaultType,
-      tvlUsd: vault.tvlUsd,
-      isRetired: vault.isRetired,
-      strategies: vault.strategies,
-    }, null, 2));
+    console.log(
+      JSON.stringify(
+        {
+          address: vault.address,
+          name: vault.name,
+          chain: chainName,
+          chainId,
+          category: vault.category,
+          vaultType: vault.vaultType,
+          tvlUsd: vault.tvlUsd,
+          isRetired: vault.isRetired,
+          strategies: vault.strategies,
+        },
+        null,
+        2,
+      ),
+    );
   }
 }
 
@@ -385,10 +384,7 @@ async function cmdFees(tableMode: boolean) {
     console.log("-".repeat(53));
     for (const [chain, data] of Object.entries(summary.byChain).sort((a, b) => b[1].feeRevenue - a[1].feeRevenue)) {
       console.log(
-        padRight(chain, 15) +
-        padLeft(fmtUsd(data.feeRevenue), 14) +
-        padLeft(fmtUsd(data.gains), 14) +
-        padLeft(String(data.vaultCount), 10),
+        padRight(chain, 15) + padLeft(fmtUsd(data.feeRevenue), 14) + padLeft(fmtUsd(data.gains), 14) + padLeft(String(data.vaultCount), 10),
       );
     }
   } else {
@@ -409,9 +405,7 @@ async function cmdDepositors(tableMode: boolean) {
 
   const statsMap = new Map(stats.map((s) => [s.vaultId, s]));
 
-  const vaultRows = await db
-    .select({ id: vaults.id, address: vaults.address, chainId: vaults.chainId, name: vaults.name })
-    .from(vaults);
+  const vaultRows = await db.select({ id: vaults.id, address: vaults.address, chainId: vaults.chainId, name: vaults.name }).from(vaults);
 
   const result = vaultRows
     .filter((v) => statsMap.has(v.id))
@@ -436,9 +430,9 @@ async function cmdDepositors(tableMode: boolean) {
     for (const r of result.slice(0, 30)) {
       console.log(
         padRight((r.name || r.address.slice(0, 10)).slice(0, 28), 30) +
-        padLeft(fmtUsd(r.totalBalanceUsd), 14) +
-        padLeft(String(r.depositorCount), 12) +
-        padLeft(`${r.topDepositorPercent.toFixed(1)}%`, 10),
+          padLeft(fmtUsd(r.totalBalanceUsd), 14) +
+          padLeft(String(r.depositorCount), 12) +
+          padLeft(`${r.topDepositorPercent.toFixed(1)}%`, 10),
       );
     }
   } else {
@@ -490,7 +484,7 @@ if (import.meta.main) {
   const chainArg = args.find((a) => a.startsWith("--chain="));
   const chainId = chainArg ? Number(chainArg.split("=")[1]) : undefined;
   const catArg = args.find((a) => a.startsWith("--category="));
-  const category = catArg ? catArg.split("=")[1] as DisplayCat : undefined;
+  const category = catArg ? (catArg.split("=")[1] as DisplayCat) : undefined;
   const tableMode = args.includes("--table");
 
   // Parse subcommand (first non-flag arg)

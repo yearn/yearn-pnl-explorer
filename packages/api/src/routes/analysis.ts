@@ -1,37 +1,33 @@
 import { Hono } from "hono";
+import { rateLimit } from "../middleware/rate-limit.js";
 import {
   getDeadTvlAnalysis,
   getRetiredTvlAnalysis,
   getStickyTvlAnalysis,
-  getDepositorBreakdown,
-  getVaultDepositors,
   getUserVaults,
+  getVaultDepositors,
   VALID_DEPOSITOR_SORTS,
 } from "../services/analysis.js";
-import { rateLimit } from "../middleware/rate-limit.js";
+import { getProtocolTvlHistory, getSingleVaultStickiness, getVaultStickiness } from "../services/stickiness.js";
 
 const analysis = new Hono();
 
 analysis.get("/dead", async (c) => {
-  const result = await getDeadTvlAnalysis();
+  const chainId = c.req.query("chainId") ? Number(c.req.query("chainId")) : undefined;
+  const result = await getDeadTvlAnalysis(chainId);
   return c.json(result);
 });
 
 analysis.get("/retired", async (c) => {
-  const retired = await getRetiredTvlAnalysis();
+  const chainId = c.req.query("chainId") ? Number(c.req.query("chainId")) : undefined;
+  const retired = await getRetiredTvlAnalysis(chainId);
   return c.json({ count: retired.length, vaults: retired });
 });
 
 analysis.get("/sticky", async (c) => {
-  const sticky = await getStickyTvlAnalysis();
+  const chainId = c.req.query("chainId") ? Number(c.req.query("chainId")) : undefined;
+  const sticky = await getStickyTvlAnalysis(chainId);
   return c.json({ count: sticky.length, vaults: sticky });
-});
-
-analysis.get("/depositors/:address", async (c) => {
-  const address = c.req.param("address");
-  const chainId = Number(c.req.query("chainId") || "1");
-  const depositors = await getDepositorBreakdown(address, chainId);
-  return c.json({ address, chainId, count: depositors.length, depositors });
 });
 
 analysis.get("/vault/:chainId/:address/depositors", async (c) => {
@@ -65,6 +61,27 @@ analysis.get("/user/:address", rateLimit({ windowMs: 60_000, max: 10 }), async (
 
   const result = await getUserVaults(address);
   return c.json(result);
+});
+
+analysis.get("/stickiness", async (c) => {
+  const minTvl = Number(c.req.query("minTvl") || "10000");
+  const chainId = c.req.query("chainId") ? Number(c.req.query("chainId")) : undefined;
+  const result = await getVaultStickiness(minTvl, chainId);
+  return c.json({ count: result.length, vaults: result });
+});
+
+analysis.get("/stickiness/:address", async (c) => {
+  const address = c.req.param("address");
+  const chainId = Number(c.req.query("chainId") || "1");
+  const result = await getSingleVaultStickiness(address, chainId);
+  if (!result) return c.json({ error: "Vault not found" }, 404);
+  return c.json(result);
+});
+
+analysis.get("/tvl-history", async (c) => {
+  const protocol = c.req.query("protocol");
+  const result = await getProtocolTvlHistory(protocol || undefined);
+  return c.json({ count: result.length, data: result });
 });
 
 export { analysis };

@@ -15,11 +15,11 @@ export function toMap<T, K, V>(items: T[], keyFn: (t: T) => K, valueFn?: (t: T) 
 }
 
 /** Reduce items by a string key with an init value and accumulator */
-export const reduceBy = <T, V>(items: T[], keyFn: (t: T) => string, init: () => V, accumulate: (acc: V, t: T) => V): Record<string, V> => {
-  const result: Record<string, V> = {};
-  for (const t of items) {
-    const k = keyFn(t);
-    result[k] = accumulate(result[k] ?? init(), t);
-  }
-  return result;
-};
+export const reduceBy = <T, V>(items: T[], keyFn: (t: T) => string, init: () => V, accumulate: (acc: V, t: T) => V): Record<string, V> =>
+  items.reduce(
+    (result, t) => {
+      const k = keyFn(t);
+      return { ...result, [k]: accumulate(result[k] ?? init(), t) };
+    },
+    {} as Record<string, V>,
+  );

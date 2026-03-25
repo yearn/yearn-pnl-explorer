@@ -21,16 +21,16 @@ async function fetchProtocolHistory(slug: string): Promise<DefillamaProtocol> {
 }
 
 async function backfillDefillamaHistory() {
-  let totalStored = 0;
-
-  for (const protocol of DEFILLAMA_PROTOCOLS) {
+  const totalStored = await DEFILLAMA_PROTOCOLS.reduce(async (totalPromise, protocol) => {
+    const total = await totalPromise;
     console.log(`Fetching DL history for ${protocol}...`);
     const data = await fetchProtocolHistory(protocol);
 
-    for (const [chain, series] of Object.entries(data.chainTvls)) {
-      if (!isValidChain(chain)) continue;
+    const protocolStored = await Object.entries(data.chainTvls).reduce(async (chainPromise, [chain, series]) => {
+      const chainTotal = await chainPromise;
+      if (!isValidChain(chain)) return chainTotal;
       const chainId = CHAIN_NAME_TO_ID[chain];
-      if (chainId === undefined) continue;
+      if (chainId === undefined) return chainTotal;
 
       // Check what we already have
       const existing = db
@@ -41,16 +41,20 @@ async function backfillDefillamaHistory() {
 
       if (existing && existing.cnt > 0) {
         console.log(`  ${chain} (${protocol}): ${existing.cnt} existing, skipping`);
-        continue;
+        return chainTotal;
       }
 
       const points = series.tvl;
-      if (!points || points.length === 0) continue;
+      if (!points || points.length === 0) return chainTotal;
 
       // Batch insert
       const batchSize = 500;
-      for (let i = 0; i < points.length; i += batchSize) {
-        const batch = points.slice(i, i + batchSize);
+      const batches = Array.from({ length: Math.ceil(points.length / batchSize) }, (_, i) =>
+        points.slice(i * batchSize, (i + 1) * batchSize),
+      );
+
+      await batches.reduce(async (batchPromise, batch) => {
+        await batchPromise;
         await db.insert(tvlHistory).values(
           batch.map((p) => ({
             chainId,
@@ -60,12 +64,14 @@ async function backfillDefillamaHistory() {
             timestamp: p.date,
           })),
         );
-      }
+      }, Promise.resolve());
 
-      totalStored += points.length;
       console.log(`  ${chain} (${protocol}): ${points.length} data points stored`);
-    }
-  }
+      return chainTotal + points.length;
+    }, Promise.resolve(0));
+
+    return total + protocolStored;
+  }, Promise.resolve(0));
 
   return totalStored;
 }
@@ -94,9 +100,12 @@ async function backfillVaultSnapshots() {
   }
 
   const batchSize = 500;
-  let stored = 0;
-  for (let i = 0; i < snapshots.length; i += batchSize) {
-    const batch = snapshots.slice(i, i + batchSize);
+  const batches = Array.from({ length: Math.ceil(snapshots.length / batchSize) }, (_, i) =>
+    snapshots.slice(i * batchSize, (i + 1) * batchSize),
+  );
+
+  const stored = await batches.reduce(async (accPromise, batch) => {
+    const acc = await accPromise;
     await db.insert(tvlHistory).values(
       batch.map((s) => ({
         vaultId: s.vaultId,
@@ -105,8 +114,8 @@ async function backfillVaultSnapshots() {
         timestamp: Math.floor(new Date(s.timestamp).getTime() / 1000),
       })),
     );
-    stored += batch.length;
-  }
+    return acc + batch.length;
+  }, Promise.resolve(0));
 
   console.log(`Backfilled ${stored} vault snapshot entries`);
   return stored;

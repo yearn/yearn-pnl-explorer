@@ -26,10 +26,6 @@ export const fetchV2Fees = async () => {
 
   console.log(`Reading on-chain fees for ${v2Vaults.length} V2 vaults...\n`);
 
-  let updated = 0;
-  let errors = 0;
-  const rateDist: Record<string, number> = {};
-
   // Group by chain
   const byChain = v2Vaults.reduce((acc, v) => {
     const arr = acc.get(v.chainId) ?? [];
@@ -37,72 +33,85 @@ export const fetchV2Fees = async () => {
     return acc.set(v.chainId, arr);
   }, new Map<number, typeof v2Vaults>());
 
-  for (const [chainId, chainVaults] of byChain) {
-    const config = chains[chainId];
-    if (!config) {
-      console.log(`  Chain ${chainId}: no config, skipping ${chainVaults.length} vaults`);
-      continue;
-    }
+  const { updated, errors, rateDist } = await [...byChain].reduce(
+    async (accP, [chainId, chainVaults]) => {
+      const acc = await accP;
+      const config = chains[chainId];
+      if (!config) {
+        console.log(`  Chain ${chainId}: no config, skipping ${chainVaults.length} vaults`);
+        return acc;
+      }
 
-    const rpc = process.env[config.rpcEnv] || process.env.ETH_RPC_URL;
-    if (!rpc) {
-      console.log(`  Chain ${chainId}: no RPC, skipping`);
-      continue;
-    }
+      const rpc = process.env[config.rpcEnv] || process.env.ETH_RPC_URL;
+      if (!rpc) {
+        console.log(`  Chain ${chainId}: no RPC, skipping`);
+        return acc;
+      }
 
-    const client = createPublicClient({ chain: config.chain, transport: http(rpc) });
+      const client = createPublicClient({ chain: config.chain, transport: http(rpc) });
 
-    for (const v of chainVaults) {
-      try {
-        const [mgmt, perf] = await Promise.all([
-          client.readContract({ address: v.address as `0x${string}`, abi, functionName: "managementFee" }),
-          client.readContract({ address: v.address as `0x${string}`, abi, functionName: "performanceFee" }),
-        ]);
+      const chainResult = await chainVaults.reduce(
+        async (innerAccP, v) => {
+          const innerAcc = await innerAccP;
+          try {
+            const [mgmt, perf] = await Promise.all([
+              client.readContract({ address: v.address as `0x${string}`, abi, functionName: "managementFee" }),
+              client.readContract({ address: v.address as `0x${string}`, abi, functionName: "performanceFee" }),
+            ]);
 
-        const perfFee = Number(perf);
-        const mgmtFee = Number(mgmt);
-        const key = `perf=${perfFee} mgmt=${mgmtFee}`;
-        rateDist[key] = (rateDist[key] || 0) + 1;
+            const perfFee = Number(perf);
+            const mgmtFee = Number(mgmt);
+            const key = `perf=${perfFee} mgmt=${mgmtFee}`;
+            const newRateDist = { ...innerAcc.rateDist, [key]: (innerAcc.rateDist[key] || 0) + 1 };
 
-        // Update fee config
-        const existing = await db.query.feeConfigs.findFirst({
-          where: eq(feeConfigs.vaultId, v.id),
-        });
+            // Update fee config
+            const existing = await db.query.feeConfigs.findFirst({
+              where: eq(feeConfigs.vaultId, v.id),
+            });
 
-        const now = new Date().toISOString();
-        if (existing) {
-          if (existing.performanceFee !== perfFee || existing.managementFee !== mgmtFee) {
-            await db
-              .update(feeConfigs)
-              .set({
+            const now = new Date().toISOString();
+            if (existing) {
+              if (existing.performanceFee !== perfFee || existing.managementFee !== mgmtFee) {
+                await db
+                  .update(feeConfigs)
+                  .set({
+                    performanceFee: perfFee,
+                    managementFee: mgmtFee,
+                    updatedAt: now,
+                  })
+                  .where(eq(feeConfigs.id, existing.id));
+                return { updated: innerAcc.updated + 1, errors: innerAcc.errors, rateDist: newRateDist };
+              }
+            } else {
+              await db.insert(feeConfigs).values({
+                vaultId: v.id,
                 performanceFee: perfFee,
                 managementFee: mgmtFee,
                 updatedAt: now,
-              })
-              .where(eq(feeConfigs.id, existing.id));
-            updated++;
+              });
+              return { updated: innerAcc.updated + 1, errors: innerAcc.errors, rateDist: newRateDist };
+            }
+            return { ...innerAcc, rateDist: newRateDist };
+          } catch {
+            return { ...innerAcc, errors: innerAcc.errors + 1 };
           }
-        } else {
-          await db.insert(feeConfigs).values({
-            vaultId: v.id,
-            performanceFee: perfFee,
-            managementFee: mgmtFee,
-            updatedAt: now,
-          });
-          updated++;
-        }
-      } catch {
-        errors++;
-      }
-    }
-    console.log(`  Chain ${chainId}: ${chainVaults.length} vaults checked`);
-  }
+        },
+        Promise.resolve({ updated: acc.updated, errors: acc.errors, rateDist: acc.rateDist }),
+      );
+
+      console.log(`  Chain ${chainId}: ${chainVaults.length} vaults checked`);
+      return chainResult;
+    },
+    Promise.resolve({ updated: 0, errors: 0, rateDist: {} as Record<string, number> }),
+  );
 
   console.log(`\nUpdated ${updated} fee configs, ${errors} errors`);
   console.log("Rate distribution:");
-  for (const [key, count] of Object.entries(rateDist).sort((a, b) => b[1] - a[1])) {
-    console.log(`  ${key}: ${count} vaults`);
-  }
+  Object.entries(rateDist)
+    .sort((a, b) => b[1] - a[1])
+    .forEach(([key, count]) => {
+      console.log(`  ${key}: ${count} vaults`);
+    });
 
   return { updated, errors };
 };

@@ -33,9 +33,9 @@ const buildPriceCache = async (): Promise<Map<string, { ts: number; price: numbe
     return acc.set(key, arr);
   }, new Map<string, { ts: number; price: number }[]>());
 
-  for (const arr of cache.values()) {
+  [...cache.values()].forEach((arr) => {
     arr.sort((a, b) => a.ts - b.ts);
-  }
+  });
 
   return cache;
 };
@@ -44,23 +44,17 @@ const buildPriceCache = async (): Promise<Map<string, { ts: number; price: numbe
 const findNearestPrice = (prices: { ts: number; price: number }[], timestamp: number): number => {
   if (prices.length === 0) return 0;
 
-  let lo = 0;
-  let hi = prices.length - 1;
-  while (lo < hi) {
+  // Binary search using recursive helper to find insertion point
+  const bsearch = (lo: number, hi: number): number => {
+    if (lo >= hi) return lo;
     const mid = (lo + hi) >> 1;
-    if (prices[mid].ts < timestamp) lo = mid + 1;
-    else hi = mid;
-  }
+    return prices[mid].ts < timestamp ? bsearch(mid + 1, hi) : bsearch(lo, mid);
+  };
+  const idx = bsearch(0, prices.length - 1);
 
-  let best = prices[lo];
-  let bestDiff = Math.abs(best.ts - timestamp);
-  if (lo > 0) {
-    const diff = Math.abs(prices[lo - 1].ts - timestamp);
-    if (diff < bestDiff) {
-      best = prices[lo - 1];
-      bestDiff = diff;
-    }
-  }
+  const candidates = [prices[idx], ...(idx > 0 ? [prices[idx - 1]] : [])];
+  const best = candidates.reduce((a, b) => (Math.abs(a.ts - timestamp) <= Math.abs(b.ts - timestamp) ? a : b));
+  const bestDiff = Math.abs(best.ts - timestamp);
 
   return bestDiff <= WEEK_SECONDS ? best.price : 0;
 };
@@ -124,62 +118,72 @@ export const repriceReports = async () => {
   const cacheSize = [...priceCache.values()].reduce((sum, arr) => sum + arr.length, 0);
   console.log(`Loaded ${cacheSize} cached prices for ${priceCache.size} assets\n`);
 
-  let updated = 0;
-  let cachedPriced = 0;
-  let snapshotPriced = 0;
-  let failed = 0;
-  let skipped = 0;
   const snapshotPriceCache = new Map<number, number>();
 
   // Prepare updates, then write in batched transactions
-  const pending: { id: number; gainUsd: number; source: string | null }[] = [];
-
-  for (const r of reports) {
-    const info = vaultInfoCache.get(r.vaultId);
-    if (!info || !r.gain) {
-      skipped++;
-      continue;
-    }
-
-    const cacheKey = `${info.chainId}:${info.assetAddress.toLowerCase()}`;
-    const prices = priceCache.get(cacheKey);
-    let price = prices ? findNearestPrice(prices, r.blockTime!) : 0;
-    let source: "defillama_historical" | "snapshot" | null = price > 0 ? "defillama_historical" : null;
-
-    if (!price) {
-      if (!snapshotPriceCache.has(r.vaultId)) {
-        snapshotPriceCache.set(r.vaultId, await getSnapshotTokenPrice(r.vaultId, info.assetDecimals));
+  // Sequential reduce because we need async snapshot price lookups that populate a shared cache
+  const { pending, cachedPriced, snapshotPriced, failed, skipped } = await reports.reduce(
+    async (accP, r) => {
+      const acc = await accP;
+      const info = vaultInfoCache.get(r.vaultId);
+      if (!info || !r.gain) {
+        acc.skipped++;
+        return acc;
       }
-      price = snapshotPriceCache.get(r.vaultId)!;
-      source = price > 0 ? "snapshot" : null;
-    }
 
-    if (!price || price === 0) {
-      failed++;
-      continue;
-    }
+      const cacheKey = `${info.chainId}:${info.assetAddress.toLowerCase()}`;
+      const prices = priceCache.get(cacheKey);
+      const cachedPrice = prices ? findNearestPrice(prices, r.blockTime!) : 0;
+      const priceAndSource = await (async (): Promise<{ price: number; source: "defillama_historical" | "snapshot" | null }> => {
+        if (cachedPrice > 0) return { price: cachedPrice, source: "defillama_historical" };
+        if (!snapshotPriceCache.has(r.vaultId)) {
+          snapshotPriceCache.set(r.vaultId, await getSnapshotTokenPrice(r.vaultId, info.assetDecimals));
+        }
+        const snapPrice = snapshotPriceCache.get(r.vaultId)!;
+        return { price: snapPrice, source: snapPrice > 0 ? "snapshot" : null };
+      })();
 
-    let newGainUsd = rawToUsd(r.gain, info.assetDecimals, price);
-    if (newGainUsd > MAX_GAIN_PER_REPORT) newGainUsd = 0;
+      if (!priceAndSource.price || priceAndSource.price === 0) {
+        acc.failed++;
+        return acc;
+      }
 
-    pending.push({ id: r.id, gainUsd: newGainUsd, source });
-    if (source === "defillama_historical") cachedPriced++;
-    else snapshotPriced++;
-  }
+      const rawGainUsd = rawToUsd(r.gain, info.assetDecimals, priceAndSource.price);
+      const newGainUsd = rawGainUsd > MAX_GAIN_PER_REPORT ? 0 : rawGainUsd;
+
+      acc.pending.push({ id: r.id, gainUsd: newGainUsd, source: priceAndSource.source });
+      acc.cachedPriced += priceAndSource.source === "defillama_historical" ? 1 : 0;
+      acc.snapshotPriced += priceAndSource.source === "snapshot" ? 1 : 0;
+      return acc;
+    },
+    Promise.resolve({
+      pending: [] as { id: number; gainUsd: number; source: string | null }[],
+      cachedPriced: 0,
+      snapshotPriced: 0,
+      failed: 0,
+      skipped: 0,
+    }),
+  );
 
   // Write in batched transactions for performance
-  for (let start = 0; start < pending.length; start += TX_BATCH_SIZE) {
-    const batch = pending.slice(start, start + TX_BATCH_SIZE);
+  const batches = Array.from({ length: Math.ceil(pending.length / TX_BATCH_SIZE) }, (_, i) =>
+    pending.slice(i * TX_BATCH_SIZE, (i + 1) * TX_BATCH_SIZE),
+  );
+  const updated = await batches.reduce(async (accP, batch, i) => {
+    const acc = await accP;
     await db.transaction(async (tx) => {
-      for (const p of batch) {
-        await tx.update(strategyReports).set({ gainUsd: p.gainUsd, pricingSource: p.source }).where(eq(strategyReports.id, p.id));
-      }
+      await Promise.all(
+        batch.map((p) =>
+          tx.update(strategyReports).set({ gainUsd: p.gainUsd, pricingSource: p.source }).where(eq(strategyReports.id, p.id)),
+        ),
+      );
     });
-    updated += batch.length;
+    const totalProcessed = acc + batch.length;
     process.stdout.write(
-      `  ${Math.min(start + TX_BATCH_SIZE, pending.length)}/${pending.length}: ${updated} updated — ${cachedPriced} cached, ${snapshotPriced} snapshot\n`,
+      `  ${Math.min((i + 1) * TX_BATCH_SIZE, pending.length)}/${pending.length}: ${totalProcessed} updated — ${cachedPriced} cached, ${snapshotPriced} snapshot\n`,
     );
-  }
+    return totalProcessed;
+  }, Promise.resolve(0));
 
   console.log(`\nDone: ${updated} reports repriced`);
   console.log(`  Cached price (asset_prices): ${cachedPriced}`);

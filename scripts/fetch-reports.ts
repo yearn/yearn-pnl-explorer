@@ -125,85 +125,103 @@ export const fetchAndStoreReports = async () => {
   const activeVaults = await getActiveVaults();
   console.log(`Found ${activeVaults.length} active vaults\n`);
 
-  let totalReports = 0;
-  let totalGainUsd = 0;
-  let repricedCount = 0;
-  let repricedUsd = 0;
-  const byChain: Record<number, { vaults: number; reports: number; gain: number }> = {};
+  const { totalReports, totalGainUsd, repricedCount, repricedUsd, byChain } = await activeVaults.reduce(
+    async (accPromise, vault) => {
+      const acc = await accPromise;
+      try {
+        const reports = await fetchVaultReports(vault.chainId, vault.address);
+        if (reports.length === 0) return acc;
 
-  for (const vault of activeVaults) {
-    try {
-      const reports = await fetchVaultReports(vault.chainId, vault.address);
-      if (reports.length === 0) continue;
+        const now = new Date().toISOString();
+        const decimals = vault.assetDecimals || 18;
 
-      const now = new Date().toISOString();
-      const decimals = vault.assetDecimals || 18;
+        // Check existing reports to avoid duplicates
+        const existing = await db
+          .select({ hash: strategyReports.transactionHash })
+          .from(strategyReports)
+          .where(eq(strategyReports.vaultId, vault.id));
+        const existingHashes = new Set(existing.map((e) => e.hash));
 
-      // Check existing reports to avoid duplicates
-      const existing = await db
-        .select({ hash: strategyReports.transactionHash })
-        .from(strategyReports)
-        .where(eq(strategyReports.vaultId, vault.id));
-      const existingHashes = new Set(existing.map((e) => e.hash));
+        // Lazily compute token price only if needed (some report has gainUsd=0 but gain>0)
+        const needsRepricing = reports.some((r) => !existingHashes.has(r.transactionHash) && !r.gainUsd && r.gain && r.gain !== "0");
+        const tokenPrice = needsRepricing ? await getTokenPrice(vault.id, decimals) : null;
 
-      // Lazily compute token price only if needed (some report has gainUsd=0 but gain>0)
-      const needsRepricing = reports.some((r) => !existingHashes.has(r.transactionHash) && !r.gainUsd && r.gain && r.gain !== "0");
-      const tokenPrice = needsRepricing ? await getTokenPrice(vault.id, decimals) : null;
+        const { newCount, vaultGain, vaultRepricedCount, vaultRepricedUsd } = await reports.reduce(
+          async (rAccPromise, r) => {
+            const rAcc = await rAccPromise;
+            if (existingHashes.has(r.transactionHash)) return rAcc;
 
-      let newCount = 0;
-      let vaultGain = 0;
+            const { gainUsd, repriced } = resolveGainUsd(r, decimals, tokenPrice);
 
-      for (const r of reports) {
-        if (existingHashes.has(r.transactionHash)) continue;
+            await db.insert(strategyReports).values({
+              vaultId: vault.id,
+              strategyAddress: r.strategy || "",
+              gain: r.gain,
+              gainUsd,
+              lossUsd: r.lossUsd,
+              totalGainUsd: r.totalGainUsd,
+              totalLossUsd: r.totalLossUsd,
+              blockTime: r.blockTime ? Number(r.blockTime) : null,
+              blockNumber: r.blockNumber,
+              transactionHash: r.transactionHash,
+              timestamp: now,
+            });
 
-        const { gainUsd, repriced } = resolveGainUsd(r, decimals, tokenPrice);
-        if (repriced && gainUsd) {
-          repricedCount++;
-          repricedUsd += gainUsd;
+            return {
+              newCount: rAcc.newCount + 1,
+              vaultGain: rAcc.vaultGain + (gainUsd || 0),
+              vaultRepricedCount: rAcc.vaultRepricedCount + (repriced && gainUsd ? 1 : 0),
+              vaultRepricedUsd: rAcc.vaultRepricedUsd + (repriced && gainUsd ? gainUsd : 0),
+            };
+          },
+          Promise.resolve({ newCount: 0, vaultGain: 0, vaultRepricedCount: 0, vaultRepricedUsd: 0 }),
+        );
+
+        const chainEntry = acc.byChain[vault.chainId] || { vaults: 0, reports: 0, gain: 0 };
+
+        if (newCount > 0) {
+          process.stdout.write(
+            `  ${vault.name?.slice(0, 30) || vault.address.slice(0, 10)}: ${newCount} reports, $${(vaultGain / 1e3).toFixed(1)}K gains\n`,
+          );
         }
 
-        await db.insert(strategyReports).values({
-          vaultId: vault.id,
-          strategyAddress: r.strategy || "",
-          gain: r.gain,
-          gainUsd,
-          lossUsd: r.lossUsd,
-          totalGainUsd: r.totalGainUsd,
-          totalLossUsd: r.totalLossUsd,
-          blockTime: r.blockTime ? Number(r.blockTime) : null,
-          blockNumber: r.blockNumber,
-          transactionHash: r.transactionHash,
-          timestamp: now,
-        });
-        newCount++;
-        vaultGain += gainUsd || 0;
+        return {
+          totalReports: acc.totalReports + newCount,
+          totalGainUsd: acc.totalGainUsd + vaultGain,
+          repricedCount: acc.repricedCount + vaultRepricedCount,
+          repricedUsd: acc.repricedUsd + vaultRepricedUsd,
+          byChain: {
+            ...acc.byChain,
+            [vault.chainId]: {
+              vaults: chainEntry.vaults + 1,
+              reports: chainEntry.reports + newCount,
+              gain: chainEntry.gain + vaultGain,
+            },
+          },
+        };
+      } catch (err) {
+        console.warn(`  Failed ${vault.address.slice(0, 10)} chain=${vault.chainId}: ${(err as Error).message}`);
+        return acc;
       }
-
-      totalReports += newCount;
-      totalGainUsd += vaultGain;
-
-      if (!byChain[vault.chainId]) byChain[vault.chainId] = { vaults: 0, reports: 0, gain: 0 };
-      byChain[vault.chainId].vaults++;
-      byChain[vault.chainId].reports += newCount;
-      byChain[vault.chainId].gain += vaultGain;
-
-      if (newCount > 0) {
-        process.stdout.write(
-          `  ${vault.name?.slice(0, 30) || vault.address.slice(0, 10)}: ${newCount} reports, $${(vaultGain / 1e3).toFixed(1)}K gains\n`,
-        );
-      }
-    } catch (err) {
-      console.warn(`  Failed ${vault.address.slice(0, 10)} chain=${vault.chainId}: ${(err as Error).message}`);
-    }
-  }
+    },
+    Promise.resolve({
+      totalReports: 0,
+      totalGainUsd: 0,
+      repricedCount: 0,
+      repricedUsd: 0,
+      byChain: {} as Record<number, { vaults: number; reports: number; gain: number }>,
+    }),
+  );
 
   console.log(`\nStored ${totalReports} reports, $${(totalGainUsd / 1e6).toFixed(2)}M total gains`);
   if (repricedCount > 0) {
     console.log(`Repriced ${repricedCount} reports (Kong had gainUsd=0), added $${(repricedUsd / 1e6).toFixed(2)}M`);
   }
-  for (const [chainId, data] of Object.entries(byChain).sort((a, b) => b[1].gain - a[1].gain)) {
-    console.log(`  Chain ${chainId}: ${data.vaults} vaults, ${data.reports} reports, $${(data.gain / 1e6).toFixed(2)}M gains`);
-  }
+  Object.entries(byChain)
+    .sort((a, b) => b[1].gain - a[1].gain)
+    .forEach(([chainId, data]) => {
+      console.log(`  Chain ${chainId}: ${data.vaults} vaults, ${data.reports} reports, $${(data.gain / 1e6).toFixed(2)}M gains`);
+    });
 
   return { totalReports, totalGainUsd, repricedCount, repricedUsd };
 };

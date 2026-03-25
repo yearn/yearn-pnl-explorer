@@ -103,19 +103,20 @@ export type KongTransferREST = z.infer<typeof KongTransferRESTSchema>;
  * Returns only successfully parsed items.
  */
 export function validateArray<T>(items: unknown[], schema: z.ZodType<T>, label: string): T[] {
-  const results: T[] = [];
-  let warnings = 0;
-  for (const item of items) {
-    const parsed = schema.safeParse(item);
-    if (parsed.success) {
-      results.push(parsed.data);
-    } else {
-      warnings++;
-      if (warnings <= 3) {
+  const { results, warnings } = items.reduce<{ results: T[]; warnings: number }>(
+    (acc, item) => {
+      const parsed = schema.safeParse(item);
+      if (parsed.success) {
+        return { results: [...acc.results, parsed.data], warnings: acc.warnings };
+      }
+      const newWarnings = acc.warnings + 1;
+      if (newWarnings <= 3) {
         console.warn(`  ${label} validation warning: ${parsed.error.issues[0]?.message}`);
       }
-    }
-  }
+      return { results: acc.results, warnings: newWarnings };
+    },
+    { results: [], warnings: 0 },
+  );
   if (warnings > 3) {
     console.warn(`  ... and ${warnings - 3} more ${label} validation warnings`);
   }

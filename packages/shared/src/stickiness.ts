@@ -44,13 +44,14 @@ export function computeStickiness(values: number[]): StickinessResult | null {
   const cv = stddev / mean;
 
   // Max drawdown (peak to trough)
-  let peak = values[0];
-  let maxDrawdown = 0;
-  for (const v of values) {
-    if (v > peak) peak = v;
-    const drawdown = (peak - v) / peak;
-    if (drawdown > maxDrawdown) maxDrawdown = drawdown;
-  }
+  const { maxDrawdown } = values.reduce(
+    (acc, v) => {
+      const peak = Math.max(acc.peak, v);
+      const drawdown = (peak - v) / peak;
+      return { peak, maxDrawdown: Math.max(acc.maxDrawdown, drawdown) };
+    },
+    { peak: values[0], maxDrawdown: 0 },
+  );
 
   const score = Math.max(0, Math.min(100, 100 - cv * 200 - maxDrawdown * 100));
 

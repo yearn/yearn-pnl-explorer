@@ -33,7 +33,6 @@ const CHAINS = [
   { id: "1", label: "Ethereum" },
   { id: "10", label: "Optimism" },
   { id: "137", label: "Polygon" },
-  { id: "250", label: "Fantom" },
   { id: "42161", label: "Arbitrum" },
   { id: "8453", label: "Base" },
   { id: "100", label: "Gnosis" },

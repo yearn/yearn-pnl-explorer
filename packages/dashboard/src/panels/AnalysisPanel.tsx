@@ -194,9 +194,8 @@ export function AnalysisPanel() {
 
   const healthVaults = useMemo(() => {
     if (!dead) return [];
-    let vaults = dead.vaults.filter((v) => v.tvlUsd > 10_000);
-    if (chainFilter !== "all") vaults = vaults.filter((v) => String(v.chainId) === chainFilter);
-    return vaults;
+    const base = dead.vaults.filter((v) => v.tvlUsd > 10_000);
+    return chainFilter !== "all" ? base.filter((v) => String(v.chainId) === chainFilter) : base;
   }, [dead, chainFilter]);
 
   const sortedHealth = useMemo(
@@ -237,9 +236,8 @@ export function AnalysisPanel() {
 
   const stickyFiltered = useMemo(() => {
     if (!sticky) return [];
-    let vaults = sticky.vaults.filter((v) => v.tvlUsd > 100_000);
-    if (chainFilter !== "all") vaults = vaults.filter((v) => String(v.chainId) === chainFilter);
-    return vaults;
+    const base = sticky.vaults.filter((v) => v.tvlUsd > 100_000);
+    return chainFilter !== "all" ? base.filter((v) => String(v.chainId) === chainFilter) : base;
   }, [sticky, chainFilter]);
 
   const sortedSticky = useMemo(
@@ -257,9 +255,8 @@ export function AnalysisPanel() {
 
   const stickinessFiltered = useMemo(() => {
     if (!stickinessData) return [];
-    let vaults = stickinessData.vaults.filter((v) => v.currentTvl > 100_000);
-    if (chainFilter !== "all") vaults = vaults.filter((v) => String(v.chainId) === chainFilter);
-    return vaults;
+    const base = stickinessData.vaults.filter((v) => v.currentTvl > 100_000);
+    return chainFilter !== "all" ? base.filter((v) => String(v.chainId) === chainFilter) : base;
   }, [stickinessData, chainFilter]);
 
   const sortedStickiness = useMemo(

@@ -77,23 +77,20 @@ export function VaultsPanel() {
 
   // Build per-vault overlap map (source vault address → total overlap deducted)
   const vaultOverlapMap = useMemo(() => {
-    const map = new Map<string, number>();
-    if (overlap) {
-      for (const o of overlap.overlaps) {
-        const key = o.sourceVault.toLowerCase();
-        map.set(key, (map.get(key) || 0) + o.overlapUsd);
-      }
-    }
-    return map;
+    if (!overlap) return new Map<string, number>();
+    return overlap.overlaps.reduce((map, o) => {
+      const key = o.sourceVault.toLowerCase();
+      return map.set(key, (map.get(key) || 0) + o.overlapUsd);
+    }, new Map<string, number>());
   }, [overlap]);
 
   // Filter vaults by global chain + search
   const searchFiltered = useMemo(() => {
     if (!data) return [];
-    let result = data.vaults;
-    if (chainFilter !== "all") result = result.filter((v) => String(v.chainId) === chainFilter);
-    if (debouncedSearch) result = result.filter((v) => (v.name || v.address).toLowerCase().includes(debouncedSearch.toLowerCase()));
-    return result;
+    const chainFiltered = chainFilter !== "all" ? data.vaults.filter((v) => String(v.chainId) === chainFilter) : data.vaults;
+    return debouncedSearch
+      ? chainFiltered.filter((v) => (v.name || v.address).toLowerCase().includes(debouncedSearch.toLowerCase()))
+      : chainFiltered;
   }, [data, debouncedSearch, chainFilter]);
 
   const sortedVaults = useMemo(

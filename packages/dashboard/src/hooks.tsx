@@ -135,7 +135,7 @@ export const CHAIN_NAMES: Record<number, string> = {
   1: "Ethereum",
   10: "Optimism",
   137: "Polygon",
-  250: "Fantom",
+  250: "Sonic",
   42161: "Arbitrum",
   8453: "Base",
   100: "Gnosis",
@@ -163,7 +163,7 @@ export const CHAIN_COLORS: Record<number, string> = {
   1: "#627eea", // Ethereum blue
   10: "#ff0420", // Optimism red
   137: "#8247e5", // Polygon purple
-  250: "#1969ff", // Fantom blue
+  250: "#1969ff", // Sonic (legacy Fantom)
   42161: "#28a0f0", // Arbitrum blue
   8453: "#0052ff", // Base blue
   100: "#04795b", // Gnosis green

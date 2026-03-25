@@ -156,14 +156,16 @@ export const getComparison = async (): Promise<DefillamaComparison> => {
   }
 
   // Retired TVL by chain
-  const retiredTvlByChain: Record<string, number> = {};
   const snapshots = await (await import("./queries.js")).getLatestSnapshots();
-  for (const { vault, snapshot } of snapshots) {
-    if (vault.isRetired) {
-      const chainName = CHAIN_NAMES[vault.chainId] || `Chain ${vault.chainId}`;
-      retiredTvlByChain[chainName] = (retiredTvlByChain[chainName] || 0) + (snapshot.tvlUsd ?? 0);
-    }
-  }
+  const retiredTvlByChain = snapshots
+    .filter(({ vault }) => vault.isRetired)
+    .reduce(
+      (acc, { vault, snapshot }) => {
+        const chainName = CHAIN_NAMES[vault.chainId] || `Chain ${vault.chainId}`;
+        return { ...acc, [chainName]: (acc[chainName] || 0) + (snapshot.tvlUsd ?? 0) };
+      },
+      {} as Record<string, number>,
+    );
 
   const grossTvl = ourTvl.activeTvl + ourTvl.retiredTvl;
 

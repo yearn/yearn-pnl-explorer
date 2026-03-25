@@ -65,7 +65,7 @@ export function TvlOverview() {
           <div className="label" style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
             Total TVL (Active)
             <span
-              title="Active TVL includes all non-retired vaults across V1, V2, V3, and Curation, with overlap from double-counted capital deducted."
+              title="Sum of all deposits in active (non-retired) vaults across V1, V2, V3, and Curation categories, minus any double-counted capital where one vault deposits into another."
               style={{
                 display: "inline-flex",
                 alignItems: "center",
@@ -80,7 +80,7 @@ export function TvlOverview() {
                 flexShrink: 0,
               }}
               role="img"
-              aria-label="Active TVL includes all non-retired vaults across V1, V2, V3, and Curation, with overlap from double-counted capital deducted."
+              aria-label="Sum of all deposits in active (non-retired) vaults across V1, V2, V3, and Curation categories, minus any double-counted capital where one vault deposits into another."
             >
               ?
             </span>
@@ -108,7 +108,29 @@ export function TvlOverview() {
         </div>
 
         <div className="metric">
-          <div className="label">Retired TVL</div>
+          <div className="label" style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
+            Retired TVL
+            <span
+              title="TVL sitting in vaults that are no longer actively managed — they've been shut down but still hold depositor funds that haven't been withdrawn yet."
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                width: 16,
+                height: 16,
+                borderRadius: "50%",
+                border: "1px solid var(--text-3)",
+                fontSize: "0.6rem",
+                color: "var(--text-3)",
+                cursor: "help",
+                flexShrink: 0,
+              }}
+              role="img"
+              aria-label="TVL sitting in vaults that are no longer actively managed — they've been shut down but still hold depositor funds that haven't been withdrawn yet."
+            >
+              ?
+            </span>
+          </div>
           <div className="value text-dim">{fmt(data.retiredTvl)}</div>
           <div className="sub">{data.vaultCount.retired} retired vaults still holding funds</div>
         </div>

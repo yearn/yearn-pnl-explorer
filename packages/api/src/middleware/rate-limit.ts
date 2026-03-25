@@ -18,10 +18,10 @@ const store = new Map<string, WindowEntry>();
 // Periodic cleanup every 60s to prevent memory leaks
 setInterval(() => {
   const now = Date.now();
-  for (const [key, entry] of store) {
+  [...store.entries()].forEach(([key, entry]) => {
     entry.timestamps = entry.timestamps.filter((t) => now - t < 120_000);
     if (entry.timestamps.length === 0) store.delete(key);
-  }
+  });
 }, 60_000).unref();
 
 function getClientIp(c: Context): string {
@@ -41,11 +41,13 @@ export function rateLimit(opts: RateLimitOpts = {}) {
     const now = Date.now();
     const key = ip;
 
-    let entry = store.get(key);
-    if (!entry) {
-      entry = { timestamps: [] };
-      store.set(key, entry);
-    }
+    const entry =
+      store.get(key) ??
+      (() => {
+        const newEntry = { timestamps: [] as number[] };
+        store.set(key, newEntry);
+        return newEntry;
+      })();
 
     // Remove timestamps outside the window
     entry.timestamps = entry.timestamps.filter((t) => now - t < windowMs);

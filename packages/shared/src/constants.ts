@@ -6,7 +6,7 @@ export const CHAIN_NAMES: Record<number, string> = {
   1: "Ethereum",
   10: "Optimism",
   137: "Polygon",
-  250: "Fantom",
+  250: "Sonic",
   8453: "Base",
   42161: "Arbitrum",
   100: "Gnosis",

@@ -237,26 +237,25 @@ interface VaultSearchResult {
   tvlUsd: number;
 }
 
-let vaultCache: VaultSearchResult[] | null = null;
-let vaultCacheTs = 0;
+const vaultCacheState = { vaults: null as VaultSearchResult[] | null, ts: 0 };
 const VAULT_CACHE_TTL = 5 * 60 * 1000;
 
 async function fetchVaults(): Promise<VaultSearchResult[]> {
-  if (vaultCache && Date.now() - vaultCacheTs < VAULT_CACHE_TTL) return vaultCache;
+  if (vaultCacheState.vaults && Date.now() - vaultCacheState.ts < VAULT_CACHE_TTL) return vaultCacheState.vaults;
   try {
     const res = await fetch(`${API_BASE}/api/tvl/vaults`);
-    if (!res.ok) return vaultCache || [];
+    if (!res.ok) return vaultCacheState.vaults || [];
     const data = await res.json();
-    vaultCache = (data.vaults || data || []).map((v: any) => ({
+    vaultCacheState.vaults = (data.vaults || data || []).map((v: any) => ({
       address: v.address,
       chainId: v.chainId,
       name: v.name,
       tvlUsd: v.tvlUsd,
     }));
-    vaultCacheTs = Date.now();
-    return vaultCache!;
+    vaultCacheState.ts = Date.now();
+    return vaultCacheState.vaults!;
   } catch {
-    return vaultCache || [];
+    return vaultCacheState.vaults || [];
   }
 }
 
@@ -308,30 +307,9 @@ export function CommandPalette({ onNavigate, onChainSelect, chainFilter, isOpen,
     const q = query.toLowerCase().trim();
     if (!q) return [...NAV_ITEMS, ...CHAIN_ITEMS.slice(0, 4), ...ACTION_ITEMS]; // Show top chains when no query
 
-    const filtered: PaletteItem[] = [];
+    const matchesQuery = (item: PaletteItem) => item.label.toLowerCase().includes(q) || item.hint.toLowerCase().includes(q);
 
-    // Nav items
-    for (const item of NAV_ITEMS) {
-      if (item.label.toLowerCase().includes(q) || item.hint.toLowerCase().includes(q)) {
-        filtered.push(item);
-      }
-    }
-
-    // Chain items (show more when searching)
-    for (const item of CHAIN_ITEMS) {
-      if (item.label.toLowerCase().includes(q) || item.hint.toLowerCase().includes(q)) {
-        filtered.push(item);
-      }
-    }
-
-    // Action items
-    for (const item of ACTION_ITEMS) {
-      if (item.label.toLowerCase().includes(q) || item.hint.toLowerCase().includes(q)) {
-        filtered.push(item);
-      }
-    }
-
-    return filtered;
+    return [...NAV_ITEMS.filter(matchesQuery), ...CHAIN_ITEMS.filter(matchesQuery), ...ACTION_ITEMS.filter(matchesQuery)];
   }, [query]);
 
   // Combine all results

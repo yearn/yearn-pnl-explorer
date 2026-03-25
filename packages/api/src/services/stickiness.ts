@@ -13,47 +13,47 @@ import { getLatestSnapshots } from "./queries.js";
  */
 export async function getVaultStickiness(minTvl = 10_000, chainId?: number): Promise<VaultStickiness[]> {
   const snapshots = await getLatestSnapshots();
-  const results: VaultStickiness[] = [];
 
-  for (const { vault, snapshot } of snapshots) {
-    const tvl = snapshot.tvlUsd ?? 0;
-    if (tvl < minTvl || vault.isRetired) continue;
-    if (chainId && vault.chainId !== chainId) continue;
+  return snapshots
+    .filter(({ vault, snapshot }) => {
+      const tvl = snapshot.tvlUsd ?? 0;
+      if (tvl < minTvl || vault.isRetired) return false;
+      if (chainId && vault.chainId !== chainId) return false;
+      return true;
+    })
+    .map(({ vault, snapshot }) => {
+      const tvl = snapshot.tvlUsd ?? 0;
 
-    // Get historical data for this vault
-    const history = db
-      .select({ timestamp: tvlHistory.timestamp, tvlUsd: tvlHistory.tvlUsd })
-      .from(tvlHistory)
-      .where(eq(tvlHistory.vaultId, vault.id))
-      .orderBy(tvlHistory.timestamp)
-      .all();
+      // Get historical data for this vault
+      const history = db
+        .select({ timestamp: tvlHistory.timestamp, tvlUsd: tvlHistory.tvlUsd })
+        .from(tvlHistory)
+        .where(eq(tvlHistory.vaultId, vault.id))
+        .orderBy(tvlHistory.timestamp)
+        .all();
 
-    const scores: VaultStickiness["scores"] = {
-      "30d": null,
-      "90d": null,
-      "365d": null,
-    };
+      const scores = Object.entries(STICKINESS_WINDOWS).reduce(
+        (acc, [key, windowSecs]) => {
+          const windowKey = key as keyof typeof STICKINESS_WINDOWS;
+          const values = filterWindow(history, windowSecs);
+          return { ...acc, [windowKey]: computeStickiness(values) };
+        },
+        { "30d": null, "90d": null, "365d": null } as VaultStickiness["scores"],
+      );
 
-    for (const [key, windowSecs] of Object.entries(STICKINESS_WINDOWS)) {
-      const windowKey = key as keyof typeof STICKINESS_WINDOWS;
-      const values = filterWindow(history, windowSecs);
-      scores[windowKey] = computeStickiness(values);
-    }
+      // Only include vaults that have at least one computable score
+      const hasScore = Object.values(scores).some((s) => s !== null);
 
-    // Only include vaults that have at least one computable score
-    const hasScore = Object.values(scores).some((s) => s !== null);
-
-    results.push({
-      address: vault.address,
-      chainId: vault.chainId,
-      name: vault.name,
-      currentTvl: tvl,
-      scores,
-      history: hasScore ? history : [],
-    });
-  }
-
-  return results.sort((a, b) => b.currentTvl - a.currentTvl);
+      return {
+        address: vault.address,
+        chainId: vault.chainId,
+        name: vault.name,
+        currentTvl: tvl,
+        scores,
+        history: hasScore ? history : [],
+      };
+    })
+    .sort((a, b) => b.currentTvl - a.currentTvl);
 }
 
 /**
@@ -83,12 +83,14 @@ export async function getSingleVaultStickiness(address: string, chainId: number)
     .limit(1)
     .get();
 
-  const scores: VaultStickiness["scores"] = { "30d": null, "90d": null, "365d": null };
-  for (const [key, windowSecs] of Object.entries(STICKINESS_WINDOWS)) {
-    const windowKey = key as keyof typeof STICKINESS_WINDOWS;
-    const values = filterWindow(history, windowSecs);
-    scores[windowKey] = computeStickiness(values);
-  }
+  const scores = Object.entries(STICKINESS_WINDOWS).reduce(
+    (acc, [key, windowSecs]) => {
+      const windowKey = key as keyof typeof STICKINESS_WINDOWS;
+      const values = filterWindow(history, windowSecs);
+      return { ...acc, [windowKey]: computeStickiness(values) };
+    },
+    { "30d": null, "90d": null, "365d": null } as VaultStickiness["scores"],
+  );
 
   return {
     address: vault.address,

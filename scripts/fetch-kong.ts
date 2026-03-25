@@ -129,7 +129,8 @@ const upsertStrategiesAndDebts = async (vaultId: number, kongVault: KongVault) =
 
   if (!kongVault.debts?.length) return;
 
-  for (const debt of kongVault.debts) {
+  await kongVault.debts.reduce(async (prevP, debt) => {
+    await prevP;
     const existing = await db.query.strategies.findFirst({
       where: and(eq(strategies.address, debt.strategy), eq(strategies.vaultId, vaultId)),
     });
@@ -151,7 +152,7 @@ const upsertStrategiesAndDebts = async (vaultId: number, kongVault: KongVault) =
       maxDebt: debt.maxDebt,
       timestamp: now,
     });
-  }
+  }, Promise.resolve());
 };
 
 const upsertFees = async (vaultId: number, kongVault: KongVault) => {
@@ -199,17 +200,17 @@ const priceMissingTvl = async (zeroTvlVaults: { vaultId: number; kongVault: Kong
 
   const prices = await fetchCurrentPrices(priceable.map((v) => ({ chainId: v.kongVault.chainId, address: v.kongVault.asset!.address })));
 
-  let fixed = 0;
-  for (const vault of priceable) {
+  const fixed = await priceable.reduce(async (accP, vault) => {
+    const acc = await accP;
     const price = prices.get(vault.kongVault.asset!.address.toLowerCase());
-    if (!price || price <= 0) continue;
+    if (!price || price <= 0) return acc;
 
     const decimals = vault.kongVault.asset!.decimals;
     const totalAssets = BigInt(vault.kongVault.totalAssets || "0");
-    if (totalAssets === 0n) continue;
+    if (totalAssets === 0n) return acc;
 
     const tvlUsd = (Number(totalAssets) / 10 ** decimals) * price;
-    if (tvlUsd <= 0) continue;
+    if (tvlUsd <= 0) return acc;
 
     const latestSnapshot = await db.query.vaultSnapshots.findFirst({
       where: eq(vaultSnapshots.vaultId, vault.vaultId),
@@ -219,9 +220,10 @@ const priceMissingTvl = async (zeroTvlVaults: { vaultId: number; kongVault: Kong
     if (latestSnapshot) {
       await db.update(vaultSnapshots).set({ tvlUsd }).where(eq(vaultSnapshots.id, latestSnapshot.id));
       console.log(`  Priced ${vault.kongVault.name} (${vault.kongVault.chainId}): $${tvlUsd.toFixed(0)}`);
-      fixed++;
+      return acc + 1;
     }
-  }
+    return acc;
+  }, Promise.resolve(0));
 
   return fixed;
 };
@@ -238,36 +240,43 @@ const priceViaSugarOracleFallback = async (veloVaults: { vaultId: number; kongVa
     return acc.set(chain, arr);
   }, new Map<number, typeof veloVaults>());
 
-  let fixed = 0;
-  for (const [chainId, chainVaults] of byChain) {
+  const fixed = await [...byChain].reduce(async (outerAccP, [chainId, chainVaults]) => {
+    const outerAcc = await outerAccP;
+
     // Only try vaults whose latest snapshot is still 0
-    const toPrice: typeof chainVaults = [];
-    for (const v of chainVaults) {
-      const snap = await db.query.vaultSnapshots.findFirst({
-        where: eq(vaultSnapshots.vaultId, v.vaultId),
-        orderBy: (s, { desc }) => [desc(s.id)],
-      });
-      if (snap && (!snap.tvlUsd || snap.tvlUsd === 0)) {
-        toPrice.push(v);
-      }
-    }
-    if (toPrice.length === 0) continue;
+    const toPrice = await chainVaults.reduce(
+      async (accP, v) => {
+        const acc = await accP;
+        const snap = await db.query.vaultSnapshots.findFirst({
+          where: eq(vaultSnapshots.vaultId, v.vaultId),
+          orderBy: (s, { desc }) => [desc(s.id)],
+        });
+        if (snap && (!snap.tvlUsd || snap.tvlUsd === 0)) {
+          return [...acc, v];
+        }
+        return acc;
+      },
+      Promise.resolve([] as typeof chainVaults),
+    );
+
+    if (toPrice.length === 0) return outerAcc;
 
     const assetAddresses = toPrice.map((v) => v.kongVault.asset?.address).filter(Boolean) as string[];
     const prices = await priceViaSugarOracle(chainId, assetAddresses);
 
-    for (const v of toPrice) {
+    return toPrice.reduce(async (innerAccP, v) => {
+      const innerAcc = await innerAccP;
       const assetAddr = v.kongVault.asset?.address?.toLowerCase();
-      if (!assetAddr) continue;
+      if (!assetAddr) return innerAcc;
       const price = prices.get(assetAddr);
-      if (!price || price <= 0) continue;
+      if (!price || price <= 0) return innerAcc;
 
       const decimals = v.kongVault.asset.decimals;
       const totalAssets = BigInt(v.kongVault.totalAssets || "0");
-      if (totalAssets === 0n) continue;
+      if (totalAssets === 0n) return innerAcc;
 
       const tvlUsd = (Number(totalAssets) / 10 ** decimals) * price;
-      if (tvlUsd <= 0) continue;
+      if (tvlUsd <= 0) return innerAcc;
 
       const snap = await db.query.vaultSnapshots.findFirst({
         where: eq(vaultSnapshots.vaultId, v.vaultId),
@@ -276,10 +285,11 @@ const priceViaSugarOracleFallback = async (veloVaults: { vaultId: number; kongVa
       if (snap) {
         await db.update(vaultSnapshots).set({ tvlUsd }).where(eq(vaultSnapshots.id, snap.id));
         console.log(`  Priced ${v.kongVault.name} (${chainId}): $${tvlUsd.toFixed(0)}`);
-        fixed++;
+        return innerAcc + 1;
       }
-    }
-  }
+      return innerAcc;
+    }, Promise.resolve(outerAcc));
+  }, Promise.resolve(0));
   return fixed;
 };
 
@@ -290,20 +300,24 @@ export const fetchAndStoreKongData = async () => {
 
   const activeVaults = kongVaults.filter((kv) => !isIgnored(kv.address, kv.chainId));
   const skipped = kongVaults.length - activeVaults.length;
-  const zeroTvlVaults: { vaultId: number; kongVault: KongVault }[] = [];
 
-  for (const kv of activeVaults) {
-    const vaultId = await upsertVault(kv);
-    await upsertSnapshot(vaultId, kv);
-    await upsertStrategiesAndDebts(vaultId, kv);
-    await upsertFees(vaultId, kv);
+  const zeroTvlVaults = await activeVaults.reduce(
+    async (accP, kv) => {
+      const acc = await accP;
+      const vaultId = await upsertVault(kv);
+      await upsertSnapshot(vaultId, kv);
+      await upsertStrategiesAndDebts(vaultId, kv);
+      await upsertFees(vaultId, kv);
 
-    const tvl = kv.tvl?.close ?? 0;
-    const totalAssets = BigInt(kv.totalAssets || "0");
-    if (tvl === 0 && totalAssets > 0n) {
-      zeroTvlVaults.push({ vaultId, kongVault: kv });
-    }
-  }
+      const tvl = kv.tvl?.close ?? 0;
+      const totalAssets = BigInt(kv.totalAssets || "0");
+      if (tvl === 0 && totalAssets > 0n) {
+        return [...acc, { vaultId, kongVault: kv }];
+      }
+      return acc;
+    },
+    Promise.resolve([] as { vaultId: number; kongVault: KongVault }[]),
+  );
 
   const stored = activeVaults.length;
   console.log(`Stored ${stored} vaults, skipped ${skipped} ignored`);

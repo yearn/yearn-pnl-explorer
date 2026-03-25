@@ -27,25 +27,24 @@ interface FetchAllPagesOpts<T> {
  */
 export async function fetchAllPages<T>(url: string, opts: FetchAllPagesOpts<T>): Promise<T[]> {
   const { extract, nextPage, maxPages = 100, delayMs = 0, retries = DEFAULT_RETRIES, headers } = opts;
-  const results: T[] = [];
-  let currentUrl: string | null = url;
-  let page = 0;
 
-  while (currentUrl && page < maxPages) {
+  const fetchPage = async (currentUrl: string, page: number, acc: T[]): Promise<T[]> => {
+    if (page >= maxPages) return acc;
     const json = await fetchWithRetry(currentUrl, { retries, headers });
     const items = extract(json);
-    results.push(...items);
+    const newAcc = [...acc, ...items];
 
-    if (!nextPage) break;
-    currentUrl = nextPage(json, currentUrl);
-    page++;
+    if (!nextPage) return newAcc;
+    const nextUrl = nextPage(json, currentUrl);
+    if (!nextUrl) return newAcc;
 
-    if (currentUrl && delayMs > 0) {
+    if (delayMs > 0) {
       await sleep(delayMs);
     }
-  }
+    return fetchPage(nextUrl, page + 1, newAcc);
+  };
 
-  return results;
+  return fetchPage(url, 0, []);
 }
 
 /**
@@ -55,7 +54,7 @@ export async function fetchAllPages<T>(url: string, opts: FetchAllPagesOpts<T>):
 export async function fetchWithRetry(url: string, opts?: { retries?: number; headers?: Record<string, string> }): Promise<unknown> {
   const maxAttempts = (opts?.retries ?? DEFAULT_RETRIES) + 1;
 
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+  const attempt = async (n: number): Promise<unknown> => {
     const res = await fetch(url, {
       headers: opts?.headers,
     });
@@ -66,25 +65,25 @@ export async function fetchWithRetry(url: string, opts?: { retries?: number; hea
 
     if (res.status === 429) {
       const retryAfter = res.headers.get("Retry-After");
-      const waitMs = retryAfter ? Number(retryAfter) * 1000 : INITIAL_BACKOFF_MS * 2 ** (attempt - 1);
-      if (attempt < maxAttempts) {
-        console.warn(`Rate limited (429), waiting ${waitMs}ms before retry ${attempt}/${maxAttempts - 1}`);
+      const waitMs = retryAfter ? Number(retryAfter) * 1000 : INITIAL_BACKOFF_MS * 2 ** (n - 1);
+      if (n < maxAttempts) {
+        console.warn(`Rate limited (429), waiting ${waitMs}ms before retry ${n}/${maxAttempts - 1}`);
         await sleep(waitMs);
-        continue;
+        return attempt(n + 1);
       }
     }
 
-    if (res.status >= 500 && attempt < maxAttempts) {
-      const backoff = INITIAL_BACKOFF_MS * 2 ** (attempt - 1);
-      console.warn(`Server error ${res.status}, retrying in ${backoff}ms (${attempt}/${maxAttempts - 1})`);
+    if (res.status >= 500 && n < maxAttempts) {
+      const backoff = INITIAL_BACKOFF_MS * 2 ** (n - 1);
+      console.warn(`Server error ${res.status}, retrying in ${backoff}ms (${n}/${maxAttempts - 1})`);
       await sleep(backoff);
-      continue;
+      return attempt(n + 1);
     }
 
     throw new Error(`HTTP ${res.status} ${res.statusText}: ${url}`);
-  }
+  };
 
-  throw new Error(`All ${maxAttempts} attempts failed: ${url}`);
+  return attempt(1);
 }
 
 /**
@@ -93,23 +92,26 @@ export async function fetchWithRetry(url: string, opts?: { retries?: number; hea
  */
 export async function retryWithBackoff<T>(fn: () => Promise<T>, opts?: { retries?: number; label?: string }): Promise<T> {
   const maxAttempts = (opts?.retries ?? DEFAULT_RETRIES) + 1;
-  let lastError: Error | null = null;
 
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+  const attempt = async (n: number, lastError: Error | null): Promise<T> => {
+    if (n > maxAttempts) {
+      throw lastError ?? new Error("All retry attempts failed");
+    }
     try {
       return await fn();
     } catch (err) {
-      lastError = err as Error;
-      if (attempt < maxAttempts) {
-        const backoff = INITIAL_BACKOFF_MS * 2 ** (attempt - 1);
+      const error = err as Error;
+      if (n < maxAttempts) {
+        const backoff = INITIAL_BACKOFF_MS * 2 ** (n - 1);
         const label = opts?.label || "request";
-        console.warn(`${label} failed: ${lastError.message}, retrying in ${backoff}ms (${attempt}/${maxAttempts - 1})`);
+        console.warn(`${label} failed: ${error.message}, retrying in ${backoff}ms (${n}/${maxAttempts - 1})`);
         await sleep(backoff);
       }
+      return attempt(n + 1, error);
     }
-  }
+  };
 
-  throw lastError ?? new Error("All retry attempts failed");
+  return attempt(1, null);
 }
 
 function sleep(ms: number): Promise<void> {

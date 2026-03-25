@@ -56,50 +56,50 @@ export const computeOverlap = async (): Promise<OverlapDetail[]> => {
 
   // Auto-detection (all in-memory)
   const activeVaults = allVaults.filter((v) => !v.isRetired);
-  const autoDetectedStratKeys = new Set<string>();
-  const autoResults: OverlapDetail[] = [];
 
-  for (const vault of activeVaults) {
-    for (const strat of strategiesByVault.get(vault.id) ?? []) {
-      const targetVault = vaultByAddress.get(`${vault.chainId}:${strat.address.toLowerCase()}`);
-      if (!targetVault) continue;
+  const autoResults: OverlapDetail[] = activeVaults.flatMap((vault) =>
+    (strategiesByVault.get(vault.id) ?? [])
+      .map((strat) => {
+        const targetVault = vaultByAddress.get(`${vault.chainId}:${strat.address.toLowerCase()}`);
+        if (!targetVault) return null;
 
-      const debtUsd = debtByStrategy.get(strat.id);
-      if (!debtUsd || debtUsd <= 0) continue;
+        const debtUsd = debtByStrategy.get(strat.id);
+        if (!debtUsd || debtUsd <= 0) return null;
 
-      autoDetectedStratKeys.add(`${vault.chainId}:${strat.address.toLowerCase()}`);
-      autoResults.push({
-        sourceVault: vault.address,
-        targetVault: targetVault.address,
-        strategyAddress: strat.address,
-        chainId: vault.chainId,
-        overlapUsd: debtUsd,
-        sourceCategory: vault.category as VaultCategory,
-        targetCategory: targetVault.category as VaultCategory,
-        detectionMethod: "auto",
-      });
-    }
-  }
+        return {
+          sourceVault: vault.address,
+          targetVault: targetVault.address,
+          strategyAddress: strat.address,
+          chainId: vault.chainId,
+          overlapUsd: debtUsd,
+          sourceCategory: vault.category as VaultCategory,
+          targetCategory: targetVault.category as VaultCategory,
+          detectionMethod: "auto" as const,
+        } satisfies OverlapDetail;
+      })
+      .filter((r): r is NonNullable<typeof r> => r !== null),
+  );
+
+  const autoDetectedStratKeys = new Set(autoResults.map((r) => `${r.chainId}:${r.strategyAddress.toLowerCase()}`));
 
   // Registry-based (all in-memory)
-  const registryResults: OverlapDetail[] = [];
-  for (const entry of STRATEGY_OVERLAP_REGISTRY) {
+  const registryResults = STRATEGY_OVERLAP_REGISTRY.map((entry) => {
     const key = `${entry.chainId}:${entry.strategyAddress.toLowerCase()}`;
-    if (autoDetectedStratKeys.has(key)) continue;
+    if (autoDetectedStratKeys.has(key)) return null;
 
     const targetVault = vaultByAddress.get(`${entry.chainId}:${entry.targetVaultAddress.toLowerCase()}`);
-    if (!targetVault) continue;
+    if (!targetVault) return null;
 
     const strat = strategyByAddr.get(key);
-    if (!strat) continue;
+    if (!strat) return null;
 
     const debtUsd = debtByStrategy.get(strat.id);
-    if (!debtUsd || debtUsd <= 0) continue;
+    if (!debtUsd || debtUsd <= 0) return null;
 
     const sourceVault = allVaults.find((v) => v.id === strat.vaultId);
-    if (!sourceVault) continue;
+    if (!sourceVault) return null;
 
-    registryResults.push({
+    return {
       sourceVault: sourceVault.address,
       targetVault: targetVault.address,
       strategyAddress: strat.address,
@@ -107,10 +107,10 @@ export const computeOverlap = async (): Promise<OverlapDetail[]> => {
       overlapUsd: debtUsd,
       sourceCategory: sourceVault.category as VaultCategory,
       targetCategory: targetVault.category as VaultCategory,
-      detectionMethod: "registry",
+      detectionMethod: "registry" as const,
       label: entry.label,
-    });
-  }
+    } satisfies OverlapDetail;
+  }).filter((r): r is NonNullable<typeof r> => r !== null);
 
   return [...autoResults, ...registryResults];
 };
@@ -122,11 +122,13 @@ export const calculateTvl = async (): Promise<TvlSummary> => {
   const totalOverlap = overlaps.reduce((sum, o) => sum + o.overlapUsd, 0);
 
   // Per-chain overlap (auto + registry)
-  const overlapByChain: Record<string, number> = {};
-  for (const o of overlaps) {
-    const chainName = CHAIN_NAMES[o.chainId] || `Chain ${o.chainId}`;
-    overlapByChain[chainName] = (overlapByChain[chainName] || 0) + o.overlapUsd;
-  }
+  const overlapByChain = overlaps.reduce(
+    (acc, o) => {
+      const chainName = CHAIN_NAMES[o.chainId] || `Chain ${o.chainId}`;
+      return { ...acc, [chainName]: (acc[chainName] || 0) + o.overlapUsd };
+    },
+    {} as Record<string, number>,
+  );
 
   const initCat = (): Record<VaultCategory, number> => ({ v1: 0, v2: 0, v3: 0, curation: 0 });
 
@@ -191,11 +193,13 @@ export const calculateTvl = async (): Promise<TvlSummary> => {
   const crossChainOverlap = crossChainVaults.reduce((sum, { snapshot }) => sum + (snapshot.tvlUsd ?? 0), 0);
 
   // Per-chain cross-chain overlap (deducted from source chain)
-  const crossChainOverlapByChain: Record<string, number> = {};
-  for (const { vault, snapshot } of crossChainVaults) {
-    const chainName = CHAIN_NAMES[vault.chainId] || `Chain ${vault.chainId}`;
-    crossChainOverlapByChain[chainName] = (crossChainOverlapByChain[chainName] || 0) + (snapshot.tvlUsd ?? 0);
-  }
+  const crossChainOverlapByChain = crossChainVaults.reduce(
+    (acc, { vault, snapshot }) => {
+      const chainName = CHAIN_NAMES[vault.chainId] || `Chain ${vault.chainId}`;
+      return { ...acc, [chainName]: (acc[chainName] || 0) + (snapshot.tvlUsd ?? 0) };
+    },
+    {} as Record<string, number>,
+  );
 
   return {
     totalTvl: activeRaw + retiredRaw - totalOverlap - crossChainOverlap,

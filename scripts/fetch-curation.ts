@@ -163,81 +163,99 @@ const readVaultOnChain = async (
  * rather than relying solely on the Morpho API.
  */
 const fetchMorphoVaultsOnChain = async (alreadyFound: Set<string>): Promise<MorphoVault[]> => {
-  const results: MorphoVault[] = [];
   const ownerSet = new Set(YEARN_CURATOR_OWNERS.map((a) => a.toLowerCase()));
 
-  for (const chainConfig of CURATION_CHAINS) {
-    const rpcUrl = process.env[`RPC_URI_FOR_${chainConfig.chainId}`] || process.env.ETH_RPC_URL;
-    if (!rpcUrl) {
-      console.warn(`    No RPC for chain ${chainConfig.chainId}, skipping factory scan`);
-      continue;
-    }
-
-    const viemChain = CHAIN_MAP[chainConfig.chainId];
-    if (!viemChain) continue;
-
-    const client = createPublicClient({ chain: viemChain, transport: http(rpcUrl) });
-
-    for (const factory of chainConfig.factories) {
-      try {
-        // Try V1 event first, then V2 if no results
-        const event = factory.version === "v1" ? CREATE_META_MORPHO_V1 : CREATE_META_MORPHO_V2;
-
-        let logs = await client.getLogs({
-          address: factory.address,
-          event,
-          fromBlock: factory.fromBlock,
-          toBlock: "latest",
-        });
-
-        // If V2 event returned nothing, try V1 event name (some V2 factories reuse it)
-        if (logs.length === 0 && factory.version === "v2") {
-          logs = await client.getLogs({
-            address: factory.address,
-            event: CREATE_META_MORPHO_V1,
-            fromBlock: factory.fromBlock,
-            toBlock: "latest",
-          });
-        }
-
-        let newVaults = 0;
-        for (const log of logs) {
-          const vaultAddress = log.args.metaMorpho;
-          if (!vaultAddress) continue;
-
-          const key = `${chainConfig.chainId}:${vaultAddress.toLowerCase()}`;
-          if (alreadyFound.has(key)) continue;
-
-          // Check owner
-          try {
-            const owner = await client.readContract({
-              address: vaultAddress,
-              abi: OWNER_ABI,
-              functionName: "owner",
-            });
-            if (!ownerSet.has(owner.toLowerCase())) continue;
-          } catch {
-            continue; // Can't read owner, skip
-          }
-
-          const vault = await readVaultOnChain(client, vaultAddress, chainConfig.chainId, chainConfig.name);
-          if (vault) {
-            results.push(vault);
-            alreadyFound.add(key);
-            newVaults++;
-          }
-        }
-
-        if (newVaults > 0) {
-          console.log(`    ${chainConfig.name} factory ${factory.version} (${factory.address.slice(0, 10)}...): ${newVaults} new vaults`);
-        }
-      } catch (err) {
-        console.warn(`    Failed to scan factory ${factory.address} on ${chainConfig.name}: ${(err as Error).message.slice(0, 100)}`);
+  const chainResults = await CURATION_CHAINS.reduce(
+    async (accPromise, chainConfig) => {
+      const acc = await accPromise;
+      const rpcUrl = process.env[`RPC_URI_FOR_${chainConfig.chainId}`] || process.env.ETH_RPC_URL;
+      if (!rpcUrl) {
+        console.warn(`    No RPC for chain ${chainConfig.chainId}, skipping factory scan`);
+        return acc;
       }
-    }
-  }
 
-  return results;
+      const viemChain = CHAIN_MAP[chainConfig.chainId];
+      if (!viemChain) return acc;
+
+      const client = createPublicClient({ chain: viemChain, transport: http(rpcUrl) });
+
+      const factoryResults = await chainConfig.factories.reduce(
+        async (facAccPromise, factory) => {
+          const facAcc = await facAccPromise;
+          try {
+            // Try V1 event first, then V2 if no results
+            const event = factory.version === "v1" ? CREATE_META_MORPHO_V1 : CREATE_META_MORPHO_V2;
+
+            const initialLogs = await client.getLogs({
+              address: factory.address,
+              event,
+              fromBlock: factory.fromBlock,
+              toBlock: "latest",
+            });
+
+            // If V2 event returned nothing, try V1 event name (some V2 factories reuse it)
+            const logs =
+              initialLogs.length === 0 && factory.version === "v2"
+                ? await client.getLogs({
+                    address: factory.address,
+                    event: CREATE_META_MORPHO_V1,
+                    fromBlock: factory.fromBlock,
+                    toBlock: "latest",
+                  })
+                : initialLogs;
+
+            const { vaults: newVaults, count: newCount } = await logs.reduce(
+              async (logAccPromise, log) => {
+                const logAcc = await logAccPromise;
+                const vaultAddress = log.args.metaMorpho;
+                if (!vaultAddress) return logAcc;
+
+                const key = `${chainConfig.chainId}:${vaultAddress.toLowerCase()}`;
+                if (alreadyFound.has(key)) return logAcc;
+
+                // Check owner
+                try {
+                  const owner = await client.readContract({
+                    address: vaultAddress,
+                    abi: OWNER_ABI,
+                    functionName: "owner",
+                  });
+                  if (!ownerSet.has(owner.toLowerCase())) return logAcc;
+                } catch {
+                  return logAcc; // Can't read owner, skip
+                }
+
+                const vault = await readVaultOnChain(client, vaultAddress, chainConfig.chainId, chainConfig.name);
+                if (vault) {
+                  alreadyFound.add(key);
+                  return { vaults: [...logAcc.vaults, vault], count: logAcc.count + 1 };
+                }
+                return logAcc;
+              },
+              Promise.resolve({ vaults: [] as MorphoVault[], count: 0 }),
+            );
+
+            if (newCount > 0) {
+              console.log(
+                `    ${chainConfig.name} factory ${factory.version} (${factory.address.slice(0, 10)}...): ${newCount} new vaults`,
+              );
+            }
+
+            return [...facAcc, ...newVaults];
+          } catch (err) {
+            console.warn(`    Failed to scan factory ${factory.address} on ${chainConfig.name}: ${(err as Error).message.slice(0, 100)}`);
+            return facAcc;
+          }
+        },
+        Promise.resolve([] as MorphoVault[]),
+      );
+
+      return [...acc, ...factoryResults];
+    },
+    Promise.resolve([] as MorphoVault[]),
+  );
+
+  return chainResults;
 };
 
 // --- 3. Turtle Club on-chain reads (Ethereum only) ---
@@ -246,12 +264,14 @@ const fetchTurtleClubVaults = async (): Promise<MorphoVault[]> => {
   const rpcUrl = process.env.RPC_URI_FOR_1 || process.env.ETH_RPC_URL;
   const client = createPublicClient({ chain: mainnet, transport: http(rpcUrl) });
 
-  const results: MorphoVault[] = [];
-
-  for (const address of TURTLE_CLUB_VAULTS) {
-    const vault = await readVaultOnChain(client, address, 1, "ethereum");
-    if (vault) results.push(vault);
-  }
+  const results = await TURTLE_CLUB_VAULTS.reduce(
+    async (accPromise, address) => {
+      const acc = await accPromise;
+      const vault = await readVaultOnChain(client, address, 1, "ethereum");
+      return vault ? [...acc, vault] : acc;
+    },
+    Promise.resolve([] as MorphoVault[]),
+  );
 
   return results;
 };
@@ -279,15 +299,15 @@ const priceVaultsViaDeFiLlama = async (vaultList: MorphoVault[]): Promise<void> 
     if (!res.ok) return;
     const data = (await res.json()) as { coins: Record<string, { price: number }> };
 
-    for (const { key, vault } of tokens) {
+    tokens.forEach(({ key, vault }) => {
       const priceInfo = data.coins[key];
-      if (!priceInfo || priceInfo.price <= 0) continue;
+      if (!priceInfo || priceInfo.price <= 0) return;
 
       const totalAssets = BigInt(vault.state.totalAssets || "0");
-      if (totalAssets === 0n) continue;
+      if (totalAssets === 0n) return;
 
       vault.state.totalAssetsUsd = (Number(totalAssets) / 10 ** vault.asset.decimals) * priceInfo.price;
-    }
+    });
   } catch {
     console.warn("  Failed to fetch fallback prices from DefiLlama");
   }
@@ -396,23 +416,26 @@ export const fetchAndStoreCurationData = async () => {
   await priceVaultsViaDeFiLlama(allVaults);
 
   // Persist
-  let totalTvl = 0;
-  const byChain: Record<string, { count: number; tvl: number }> = {};
-
-  for (const v of allVaults) {
-    const { tvlUsd } = await persistCurationVault(v);
-    totalTvl += tvlUsd;
-
-    const chainName = v.chain.network || `Chain ${v.chain.id}`;
-    if (!byChain[chainName]) byChain[chainName] = { count: 0, tvl: 0 };
-    byChain[chainName].count++;
-    byChain[chainName].tvl += tvlUsd;
-  }
+  const { totalTvl, byChain } = await allVaults.reduce(
+    async (accPromise, v) => {
+      const acc = await accPromise;
+      const { tvlUsd } = await persistCurationVault(v);
+      const chainName = v.chain.network || `Chain ${v.chain.id}`;
+      const existing = acc.byChain[chainName] || { count: 0, tvl: 0 };
+      return {
+        totalTvl: acc.totalTvl + tvlUsd,
+        byChain: { ...acc.byChain, [chainName]: { count: existing.count + 1, tvl: existing.tvl + tvlUsd } },
+      };
+    },
+    Promise.resolve({ totalTvl: 0, byChain: {} as Record<string, { count: number; tvl: number }> }),
+  );
 
   console.log(`\nStored ${allVaults.length} curation vaults, $${(totalTvl / 1e6).toFixed(1)}M total`);
-  for (const [chain, data] of Object.entries(byChain).sort((a, b) => b[1].tvl - a[1].tvl)) {
-    console.log(`  ${chain}: ${data.count} vaults, $${(data.tvl / 1e6).toFixed(1)}M`);
-  }
+  Object.entries(byChain)
+    .sort((a, b) => b[1].tvl - a[1].tvl)
+    .forEach(([chain, data]) => {
+      console.log(`  ${chain}: ${data.count} vaults, $${(data.tvl / 1e6).toFixed(1)}M`);
+    });
 
   return { totalVaults: allVaults.length, totalTvl };
 };

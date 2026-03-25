@@ -91,11 +91,12 @@ const main = async () => {
     balance: bigint;
   }> = [];
 
-  for (const [chainId, chainStrategies] of byChain) {
+  await [...byChain].reduce(async (prevChain, [chainId, chainStrategies]) => {
+    await prevChain;
     const client = getClient(chainId);
     if (!client) {
       console.log(`Skipping chain ${chainId} — no RPC configured`);
-      continue;
+      return;
     }
 
     const chainVaults = allVaults.filter((v) => v.chainId === chainId && !v.isRetired);
@@ -104,9 +105,12 @@ const main = async () => {
     // For each strategy, check if it holds shares of any vault on the same chain
     // Batch in groups to avoid overwhelming the RPC
     const BATCH = 20;
-    for (let i = 0; i < chainStrategies.length; i += BATCH) {
-      const batch = chainStrategies.slice(i, i + BATCH);
+    const batches = Array.from({ length: Math.ceil(chainStrategies.length / BATCH) }, (_, i) =>
+      chainStrategies.slice(i * BATCH, (i + 1) * BATCH),
+    );
 
+    await batches.reduce(async (prevBatch, batch) => {
+      await prevBatch;
       await Promise.all(
         batch.map(async (strat) => {
           // Get latest debt to filter out zero-debt strategies
@@ -119,35 +123,39 @@ const main = async () => {
 
           if (!latestDebt?.currentDebtUsd || latestDebt.currentDebtUsd < 10000) return;
 
-          // Check balanceOf on each vault's token (the vault IS the ERC20)
-          for (const vault of chainVaults) {
-            try {
-              const balance = await client.readContract({
-                address: vault.address as Address,
-                abi: ERC20_ABI,
-                functionName: "balanceOf",
-                args: [strat.address as Address],
-              });
+          const debtUsd = latestDebt.currentDebtUsd;
 
-              if (balance > 0n) {
-                candidates.push({
-                  strategyAddress: strat.address,
-                  strategyName: strat.name,
-                  chainId,
-                  targetVaultAddress: vault.address,
-                  targetVaultName: vault.name,
-                  debtUsd: latestDebt.currentDebtUsd,
-                  balance,
+          // Check balanceOf on each vault's token (the vault IS the ERC20)
+          await Promise.all(
+            chainVaults.map(async (vault) => {
+              try {
+                const balance = await client.readContract({
+                  address: vault.address as Address,
+                  abi: ERC20_ABI,
+                  functionName: "balanceOf",
+                  args: [strat.address as Address],
                 });
+
+                if (balance > 0n) {
+                  candidates.push({
+                    strategyAddress: strat.address,
+                    strategyName: strat.name,
+                    chainId,
+                    targetVaultAddress: vault.address,
+                    targetVaultName: vault.name,
+                    debtUsd,
+                    balance,
+                  });
+                }
+              } catch {
+                // Not all addresses are ERC20s — skip
               }
-            } catch {
-              // Not all addresses are ERC20s — skip
-            }
-          }
+            }),
+          );
         }),
       );
-    }
-  }
+    }, Promise.resolve());
+  }, Promise.resolve());
 
   if (candidates.length === 0) {
     console.log("\nNo new overlap candidates found.");
@@ -155,23 +163,25 @@ const main = async () => {
   }
 
   console.log(`\n=== ${candidates.length} overlap candidates found ===\n`);
-  for (const c of candidates.sort((a, b) => b.debtUsd - a.debtUsd)) {
-    console.log(`  Strategy: ${c.strategyAddress} (${c.strategyName || "unnamed"})`);
-    console.log(`  Chain: ${c.chainId}`);
-    console.log(`  → Holds shares of: ${c.targetVaultAddress} (${c.targetVaultName || "unnamed"})`);
-    console.log(`  Debt: $${(c.debtUsd / 1e6).toFixed(2)}M  Balance: ${c.balance}`);
-    console.log();
-  }
+  candidates
+    .sort((a, b) => b.debtUsd - a.debtUsd)
+    .forEach((c) => {
+      console.log(`  Strategy: ${c.strategyAddress} (${c.strategyName || "unnamed"})`);
+      console.log(`  Chain: ${c.chainId}`);
+      console.log(`  → Holds shares of: ${c.targetVaultAddress} (${c.targetVaultName || "unnamed"})`);
+      console.log(`  Debt: $${(c.debtUsd / 1e6).toFixed(2)}M  Balance: ${c.balance}`);
+      console.log();
+    });
 
   console.log("Add to STRATEGY_OVERLAP_REGISTRY in packages/shared/src/strategy-overlaps.ts:");
-  for (const c of candidates) {
+  candidates.forEach((c) => {
     console.log(`  {`);
     console.log(`    strategyAddress: "${c.strategyAddress}",`);
     console.log(`    chainId: ${c.chainId},`);
     console.log(`    targetVaultAddress: "${c.targetVaultAddress}",`);
     console.log(`    label: "${c.strategyName || "unknown"} → ${c.targetVaultName || "unknown"}",`);
     console.log(`  },`);
-  }
+  });
 };
 
 main().catch(console.error);

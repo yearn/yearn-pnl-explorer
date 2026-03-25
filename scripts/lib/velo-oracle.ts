@@ -54,70 +54,79 @@ export const priceViaSugarOracle = async (chainId: number, lpAddresses: string[]
     totalSupply: bigint;
   }> = [];
 
-  for (const lp of lpAddresses) {
-    try {
-      const [token0, token1, reserves, supply] = await Promise.all([
-        client.readContract({ address: lp as Address, abi: PAIR_ABI, functionName: "token0" }),
-        client.readContract({ address: lp as Address, abi: PAIR_ABI, functionName: "token1" }),
-        client.readContract({ address: lp as Address, abi: PAIR_ABI, functionName: "getReserves" }),
-        client.readContract({ address: lp as Address, abi: PAIR_ABI, functionName: "totalSupply" }),
-      ]);
-      if (supply > 0n) {
-        lpData.push({ lp: lp.toLowerCase(), token0, token1, reserve0: reserves[0], reserve1: reserves[1], totalSupply: supply });
+  await Promise.all(
+    lpAddresses.map(async (lp) => {
+      try {
+        const [token0, token1, reserves, supply] = await Promise.all([
+          client.readContract({ address: lp as Address, abi: PAIR_ABI, functionName: "token0" }),
+          client.readContract({ address: lp as Address, abi: PAIR_ABI, functionName: "token1" }),
+          client.readContract({ address: lp as Address, abi: PAIR_ABI, functionName: "getReserves" }),
+          client.readContract({ address: lp as Address, abi: PAIR_ABI, functionName: "totalSupply" }),
+        ]);
+        if (supply > 0n) {
+          lpData.push({ lp: lp.toLowerCase(), token0, token1, reserve0: reserves[0], reserve1: reserves[1], totalSupply: supply });
+        }
+      } catch {
+        // Not a valid Solidly-style pair, skip
       }
-    } catch {
-      // Not a valid Solidly-style pair, skip
-    }
-  }
+    }),
+  );
 
   if (lpData.length === 0) return prices;
 
   // Get decimals for all unique underlying tokens
   const uniqueTokens = [...new Set(lpData.flatMap((d) => [d.token0, d.token1]))];
-  const decimalsMap = new Map<string, number>();
-  for (const token of uniqueTokens) {
-    try {
-      const dec = await client.readContract({ address: token, abi: ERC20_ABI, functionName: "decimals" });
-      decimalsMap.set(token.toLowerCase(), Number(dec));
-    } catch {
-      decimalsMap.set(token.toLowerCase(), 18);
-    }
-  }
+  const decimalsMap = new Map(
+    await Promise.all(
+      uniqueTokens.map(async (token) => {
+        try {
+          const dec = await client.readContract({ address: token, abi: ERC20_ABI, functionName: "decimals" });
+          return [token.toLowerCase(), Number(dec)] as const;
+        } catch {
+          return [token.toLowerCase(), 18] as const;
+        }
+      }),
+    ),
+  );
 
   // Batch-fetch prices from DefiLlama
   const coinKeys = uniqueTokens.map((t) => `${prefix}:${t}`).join(",");
-  let dlPrices: Record<string, { price: number }> = {};
-  try {
-    const res = await fetch(`https://coins.llama.fi/prices/current/${coinKeys}`);
-    if (res.ok) {
-      const data = (await res.json()) as { coins: Record<string, { price: number }> };
-      dlPrices = data.coins;
+  const dlResult = await (async (): Promise<{ ok: true; coins: Record<string, { price: number }> } | { ok: false }> => {
+    try {
+      const res = await fetch(`https://coins.llama.fi/prices/current/${coinKeys}`);
+      if (res.ok) {
+        const data = (await res.json()) as { coins: Record<string, { price: number }> };
+        return { ok: true, coins: data.coins };
+      }
+      return { ok: true, coins: {} };
+    } catch {
+      return { ok: false };
     }
-  } catch {
-    return prices;
-  }
+  })();
+  if (!dlResult.ok) return prices;
+  const dlPrices = dlResult.coins;
 
   // Compute LP token prices
-  for (const d of lpData) {
+  lpData.forEach((d) => {
     const dec0 = decimalsMap.get(d.token0.toLowerCase()) ?? 18;
     const dec1 = decimalsMap.get(d.token1.toLowerCase()) ?? 18;
     const p0 = dlPrices[`${prefix}:${d.token0}`]?.price ?? 0;
     const p1 = dlPrices[`${prefix}:${d.token1}`]?.price ?? 0;
 
-    if (p0 === 0 && p1 === 0) continue;
+    if (p0 === 0 && p1 === 0) return;
 
     const val0 = (Number(d.reserve0) / 10 ** dec0) * p0;
     const val1 = (Number(d.reserve1) / 10 ** dec1) * p1;
     const totalValue = val0 + val1;
     // LP tokens are 18 decimals for Solidly-style pools
     const supplyFloat = Number(d.totalSupply) / 1e18;
-    if (supplyFloat === 0) continue;
+    if (supplyFloat === 0) return;
 
     const lpPrice = totalValue / supplyFloat;
     if (lpPrice > 0) {
       prices.set(d.lp, lpPrice);
     }
-  }
+  });
 
   return prices;
 };

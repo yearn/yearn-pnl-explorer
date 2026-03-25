@@ -92,39 +92,42 @@ export const fetchV1Vaults = async () => {
   const client = createPublicClient({ chain: mainnet, transport: http(rpcUrl) });
   console.log(`Reading ${V1_VAULTS.length} V1 vaults on-chain...\n`);
 
-  const vaultData: V1Data[] = [];
-  const tokenAddresses = new Set<string>();
+  const vaultResults = await V1_VAULTS.reduce(
+    async (accP, address) => {
+      const acc = await accP;
+      try {
+        const [token, totalSupply, pricePerFullShare, name, decimals] = await Promise.all([
+          client.readContract({ address, abi: V1_ABI, functionName: "token" }),
+          client.readContract({ address, abi: V1_ABI, functionName: "totalSupply" }),
+          client.readContract({ address, abi: V1_ABI, functionName: "getPricePerFullShare" }),
+          client.readContract({ address, abi: V1_ABI, functionName: "name" }),
+          client.readContract({ address, abi: V1_ABI, functionName: "decimals" }),
+        ]);
 
-  for (const address of V1_VAULTS) {
-    try {
-      const [token, totalSupply, pricePerFullShare, name, decimals] = await Promise.all([
-        client.readContract({ address, abi: V1_ABI, functionName: "token" }),
-        client.readContract({ address, abi: V1_ABI, functionName: "totalSupply" }),
-        client.readContract({ address, abi: V1_ABI, functionName: "getPricePerFullShare" }),
-        client.readContract({ address, abi: V1_ABI, functionName: "name" }),
-        client.readContract({ address, abi: V1_ABI, functionName: "decimals" }),
-      ]);
+        const [tokenSymbol, tokenDecimals] = await Promise.all([
+          client.readContract({ address: token, abi: ERC20_ABI, functionName: "symbol" }),
+          client.readContract({ address: token, abi: ERC20_ABI, functionName: "decimals" }),
+        ]);
 
-      const [tokenSymbol, tokenDecimals] = await Promise.all([
-        client.readContract({ address: token, abi: ERC20_ABI, functionName: "symbol" }),
-        client.readContract({ address: token, abi: ERC20_ABI, functionName: "decimals" }),
-      ]);
-
-      tokenAddresses.add(token.toLowerCase());
-      vaultData.push({
-        address,
-        token,
-        tokenSymbol,
-        tokenDecimals,
-        name,
-        totalSupply,
-        pricePerFullShare,
-        decimals,
-      });
-    } catch (err) {
-      console.warn(`  Failed to read ${address}: ${(err as Error).message?.slice(0, 80)}`);
-    }
-  }
+        acc.tokenAddresses.add(token.toLowerCase());
+        acc.vaultData.push({
+          address,
+          token,
+          tokenSymbol,
+          tokenDecimals,
+          name,
+          totalSupply,
+          pricePerFullShare,
+          decimals,
+        });
+      } catch (err) {
+        console.warn(`  Failed to read ${address}: ${(err as Error).message?.slice(0, 80)}`);
+      }
+      return acc;
+    },
+    Promise.resolve({ vaultData: [] as V1Data[], tokenAddresses: new Set<string>() }),
+  );
+  const { vaultData, tokenAddresses } = vaultResults;
 
   console.log(`  Read ${vaultData.length}/${V1_VAULTS.length} vaults successfully`);
 
@@ -132,48 +135,50 @@ export const fetchV1Vaults = async () => {
   const prices = await fetchCurrentPrices([...tokenAddresses].map((address) => ({ chainId: 1, address })));
   console.log(`  Got prices for ${prices.size}/${tokenAddresses.size} tokens\n`);
 
-  let stored = 0;
-  let errors = 0;
   const now = new Date().toISOString();
 
-  for (const v of vaultData) {
-    try {
-      const addr = getAddress(v.address);
+  const { stored, errors } = await vaultData.reduce(
+    async (accP, v) => {
+      const acc = await accP;
+      try {
+        const addr = getAddress(v.address);
 
-      // TVL = totalSupply * pricePerFullShare / 1e18 (in underlying tokens)
-      const underlyingAmount = (Number(v.totalSupply) * Number(v.pricePerFullShare)) / 1e18 / 10 ** v.tokenDecimals;
+        // TVL = totalSupply * pricePerFullShare / 1e18 (in underlying tokens)
+        const underlyingAmount = (Number(v.totalSupply) * Number(v.pricePerFullShare)) / 1e18 / 10 ** v.tokenDecimals;
 
-      // Stablecoin Curve LP fallback: ~$1/token for pools composed of stablecoins
-      const tokenPrice = prices.get(v.token.toLowerCase()) || (STABLE_LP_SYMBOLS.includes(v.tokenSymbol) ? 1 : 0);
+        // Stablecoin Curve LP fallback: ~$1/token for pools composed of stablecoins
+        const tokenPrice = prices.get(v.token.toLowerCase()) || (STABLE_LP_SYMBOLS.includes(v.tokenSymbol) ? 1 : 0);
 
-      const tvlUsd = underlyingAmount * tokenPrice;
+        const tvlUsd = underlyingAmount * tokenPrice;
 
-      // Upsert vault
-      const existing = await db.query.vaults.findFirst({
-        where: and(eq(vaults.address, addr), eq(vaults.chainId, 1)),
-      });
+        // Upsert vault
+        const existing = await db.query.vaults.findFirst({
+          where: and(eq(vaults.address, addr), eq(vaults.chainId, 1)),
+        });
 
-      const vaultId = await upsertVault(existing, addr, v, now);
+        const vaultId = await upsertVault(existing, addr, v, now);
 
-      // Insert snapshot
-      const totalAssetsStr = ((v.totalSupply * v.pricePerFullShare) / BigInt(1e18)).toString();
+        // Insert snapshot
+        const totalAssetsStr = ((v.totalSupply * v.pricePerFullShare) / BigInt(1e18)).toString();
 
-      await db.insert(vaultSnapshots).values({
-        vaultId,
-        tvlUsd,
-        totalAssets: totalAssetsStr,
-        pricePerShare: v.pricePerFullShare.toString(),
-        timestamp: now,
-      });
+        await db.insert(vaultSnapshots).values({
+          vaultId,
+          tvlUsd,
+          totalAssets: totalAssetsStr,
+          pricePerShare: v.pricePerFullShare.toString(),
+          timestamp: now,
+        });
 
-      stored++;
-      const tvlStr = tvlUsd > 0 ? `$${(tvlUsd / 1e3).toFixed(1)}K` : "no price";
-      console.log(`  ${v.name}: ${tvlStr} (${v.tokenSymbol})`);
-    } catch (err) {
-      errors++;
-      console.warn(`  Error storing ${v.address}: ${(err as Error).message?.slice(0, 80)}`);
-    }
-  }
+        const tvlStr = tvlUsd > 0 ? `$${(tvlUsd / 1e3).toFixed(1)}K` : "no price";
+        console.log(`  ${v.name}: ${tvlStr} (${v.tokenSymbol})`);
+        return { stored: acc.stored + 1, errors: acc.errors };
+      } catch (err) {
+        console.warn(`  Error storing ${v.address}: ${(err as Error).message?.slice(0, 80)}`);
+        return { stored: acc.stored, errors: acc.errors + 1 };
+      }
+    },
+    Promise.resolve({ stored: 0, errors: 0 }),
+  );
 
   console.log(`\nStored ${stored} V1 vaults, ${errors} errors`);
   return { stored, errors };

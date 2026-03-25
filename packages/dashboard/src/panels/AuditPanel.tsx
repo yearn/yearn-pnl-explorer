@@ -341,17 +341,27 @@ export function AuditPanel() {
 
   const filteredVaults = useMemo(() => {
     if (!data) return [];
-    let result = data.vaults;
-    if (!includeRetired) result = result.filter((v) => !v.isRetired);
-    if (showOverlapOnly) result = result.filter((v) => v.strategies.some((s) => s.targetVaultAddress != null));
-    if (typeFilter === "curation") result = result.filter((v) => v.category === "curation");
-    else if (typeFilter === "allocator") result = result.filter((v) => v.vaultType === 1);
-    else if (typeFilter === "strategy") result = result.filter((v) => v.vaultType === 2);
-    if (debouncedSearch) {
-      const q = debouncedSearch.toLowerCase();
-      result = result.filter((v) => (v.name || "").toLowerCase().includes(q) || v.address.toLowerCase().includes(q));
-    }
-    return result;
+    const typeFilterFn = (v: AuditVault) =>
+      typeFilter === "curation"
+        ? v.category === "curation"
+        : typeFilter === "allocator"
+          ? v.vaultType === 1
+          : typeFilter === "strategy"
+            ? v.vaultType === 2
+            : true;
+
+    const searchFilterFn = debouncedSearch
+      ? (
+          (q) => (v: AuditVault) =>
+            (v.name || "").toLowerCase().includes(q) || v.address.toLowerCase().includes(q)
+        )(debouncedSearch.toLowerCase())
+      : () => true;
+
+    return data.vaults
+      .filter((v) => includeRetired || !v.isRetired)
+      .filter((v) => !showOverlapOnly || v.strategies.some((s) => s.targetVaultAddress != null))
+      .filter(typeFilterFn)
+      .filter(searchFilterFn);
   }, [data, debouncedSearch, showOverlapOnly, includeRetired, typeFilter]);
 
   // Set of top-level vault addresses for depth limiting

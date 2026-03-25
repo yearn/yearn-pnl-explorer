@@ -142,11 +142,10 @@ function addTableRow(
   const font = opts?.bold ? "Helvetica-Bold" : "Helvetica";
   const color = opts?.color || "#cccccc";
   doc.fontSize(8).font(font).fillColor(color);
-  let x = MARGIN;
-  for (const col of cols) {
+  cols.reduce((x, col) => {
     doc.text(col.text, x, y, { width: col.width, align: col.align || "left" });
-    x += col.width;
-  }
+    return x + col.width;
+  }, MARGIN);
   doc.y = y + 13;
 }
 
@@ -239,14 +238,15 @@ async function generateReport() {
   ];
   addTableRow(doc, chainCols, { bold: true, color: "#888888" });
 
-  const chainEntries = Object.entries(tvl.tvlByChain).sort((a, b) => b[1] - a[1]);
-  for (const [chain, chainTvl] of chainEntries) {
-    addTableRow(doc, [
-      { text: chain, width: 120 },
-      { text: fmtUsd(chainTvl), width: 120, align: "right" },
-      { text: `${((chainTvl / tvl.totalTvl) * 100).toFixed(1)}%`, width: 100, align: "right" },
-    ]);
-  }
+  Object.entries(tvl.tvlByChain)
+    .sort((a, b) => b[1] - a[1])
+    .forEach(([chain, chainTvl]) => {
+      addTableRow(doc, [
+        { text: chain, width: 120 },
+        { text: fmtUsd(chainTvl), width: 120, align: "right" },
+        { text: `${((chainTvl / tvl.totalTvl) * 100).toFixed(1)}%`, width: 100, align: "right" },
+      ]);
+    });
 
   doc.moveDown(1.5);
 
@@ -278,14 +278,14 @@ async function generateReport() {
     { bold: true, color: "#888888" },
   );
 
-  for (const cat of comparison.byCategory) {
+  comparison.byCategory.forEach((cat) => {
     addTableRow(doc, [
       { text: cat.category, width: 130 },
       { text: fmtUsd(cat.ours), width: 100, align: "right" },
       { text: fmtUsd(cat.defillama), width: 100, align: "right" },
       { text: fmtUsd(cat.difference), width: 100, align: "right" },
     ]);
-  }
+  });
 
   doc.moveDown(0.5);
 
@@ -303,21 +303,21 @@ async function generateReport() {
     { bold: true, color: "#888888" },
   );
 
-  for (const c of comparison.byChain.slice(0, 10)) {
+  comparison.byChain.slice(0, 10).forEach((c) => {
     addTableRow(doc, [
       { text: c.chain, width: 100 },
       { text: fmtUsd(c.ours), width: 110, align: "right" },
       { text: fmtUsd(c.defillama), width: 110, align: "right" },
       { text: fmtUsd(c.difference), width: 110, align: "right" },
     ]);
-  }
+  });
 
   if (comparison.notes.length > 0) {
     doc.moveDown(0.5);
     doc.fontSize(8).font("Helvetica").fillColor("#888888");
-    for (const note of comparison.notes) {
+    comparison.notes.forEach((note) => {
       doc.text(`• ${note}`, MARGIN, doc.y, { width: CONTENT_WIDTH });
-    }
+    });
   }
 
   doc.moveDown(1.5);
@@ -359,16 +359,17 @@ async function generateReport() {
     { bold: true, color: "#888888" },
   );
 
-  const feeChains = Object.entries(fees.byChain).sort((a, b) => b[1].feeRevenue - a[1].feeRevenue);
-  for (const [chain, data] of feeChains) {
-    ensureSpace(doc, 15);
-    addTableRow(doc, [
-      { text: chain, width: 120 },
-      { text: fmtUsd(data.feeRevenue), width: 120, align: "right" },
-      { text: fmtUsd(data.gains), width: 120, align: "right" },
-      { text: String(data.vaultCount), width: 80, align: "right" },
-    ]);
-  }
+  Object.entries(fees.byChain)
+    .sort((a, b) => b[1].feeRevenue - a[1].feeRevenue)
+    .forEach(([chain, data]) => {
+      ensureSpace(doc, 15);
+      addTableRow(doc, [
+        { text: chain, width: 120 },
+        { text: fmtUsd(data.feeRevenue), width: 120, align: "right" },
+        { text: fmtUsd(data.gains), width: 120, align: "right" },
+        { text: String(data.vaultCount), width: 80, align: "right" },
+      ]);
+    });
 
   doc.moveDown(1.5);
 
@@ -390,7 +391,7 @@ async function generateReport() {
     { bold: true, color: "#888888" },
   );
 
-  for (const week of recentWeeks) {
+  recentWeeks.forEach((week) => {
     ensureSpace(doc, 15);
     addTableRow(doc, [
       { text: week.period, width: 100 },
@@ -398,7 +399,7 @@ async function generateReport() {
       { text: fmtUsd(week.performanceFeeRevenue), width: 110, align: "right" },
       { text: String(week.reportCount), width: 80, align: "right" },
     ]);
-  }
+  });
 
   doc.moveDown(1.5);
 
@@ -419,7 +420,7 @@ async function generateReport() {
     { bold: true, color: "#888888" },
   );
 
-  for (const v of vaultList.vaults.slice(0, 20)) {
+  vaultList.vaults.slice(0, 20).forEach((v) => {
     ensureSpace(doc, 15);
     const chain = CHAIN_NAMES[v.chainId] || `${v.chainId}`;
     addTableRow(doc, [
@@ -428,7 +429,7 @@ async function generateReport() {
       { text: v.category, width: 50 },
       { text: fmtUsd(v.tvlUsd), width: 100, align: "right" },
     ]);
-  }
+  });
 
   doc.moveDown(1.5);
 
@@ -472,7 +473,7 @@ async function generateReport() {
       { bold: true, color: "#888888" },
     );
 
-    for (const v of deadVaults) {
+    deadVaults.forEach((v) => {
       ensureSpace(doc, 15);
       const chain = CHAIN_NAMES[v.chainId] || `${v.chainId}`;
       addTableRow(doc, [
@@ -480,7 +481,7 @@ async function generateReport() {
         { text: chain, width: 80 },
         { text: fmtUsd(v.tvlUsd), width: 100, align: "right" },
       ]);
-    }
+    });
   }
 
   doc.end();

@@ -67,108 +67,114 @@ const main = async () => {
   console.log(`Found ${retiredVaults.length} retired vaults with assets${chainFilter ? ` on chain ${chainFilter}` : ""}`);
 
   // Group by chain for RPC efficiency
-  const byChain = new Map<number, typeof retiredVaults>();
-  for (const v of retiredVaults) {
-    const arr = byChain.get(v.chainId) ?? [];
+  const byChain = retiredVaults.reduce((acc, v) => {
+    const arr = acc.get(v.chainId) ?? [];
     arr.push(v);
-    byChain.set(v.chainId, arr);
-  }
+    return acc.set(v.chainId, arr);
+  }, new Map<number, typeof retiredVaults>());
 
-  let updated = 0;
-  let totalNewTvl = 0;
+  const { updated, totalNewTvl } = await [...byChain].reduce(
+    async (outerAccP, [chainId, chainVaults]) => {
+      const outerAcc = await outerAccP;
+      const chain = CHAIN_MAP[chainId];
+      const rpcUrl = process.env[`RPC_URI_FOR_${chainId}`] || process.env.ETH_RPC_URL;
 
-  for (const [chainId, chainVaults] of byChain) {
-    const chain = CHAIN_MAP[chainId];
-    const rpcUrl = process.env[`RPC_URI_FOR_${chainId}`] || process.env.ETH_RPC_URL;
-
-    if (!chain || !rpcUrl) {
-      console.log(`  Skipping chain ${chainId}: no chain config or RPC`);
-      continue;
-    }
-
-    console.log(`\n  Chain ${chainId} (${chain.name}): ${chainVaults.length} vaults`);
-    const client = createPublicClient({ chain, transport: http(rpcUrl) });
-
-    // Read totalAssets on-chain for each vault
-    const onChainData: { vault: (typeof chainVaults)[0]; totalAssets: bigint }[] = [];
-
-    for (const vault of chainVaults) {
-      try {
-        const totalAssets = await client.readContract({
-          address: vault.address as Address,
-          abi: TOTAL_ASSETS_ABI,
-          functionName: "totalAssets",
-        });
-        onChainData.push({ vault, totalAssets });
-      } catch (err) {
-        console.log(`    Failed to read ${vault.name}: ${(err as Error).message.slice(0, 60)}`);
+      if (!chain || !rpcUrl) {
+        console.log(`  Skipping chain ${chainId}: no chain config or RPC`);
+        return outerAcc;
       }
-    }
 
-    // Price underlying tokens via DL
-    const prefix = CHAIN_PREFIXES[chainId];
-    if (!prefix) {
-      console.log(`    No DL price prefix for chain ${chainId}, using stablecoin fallback`);
-    }
+      console.log(`\n  Chain ${chainId} (${chain.name}): ${chainVaults.length} vaults`);
+      const client = createPublicClient({ chain, transport: http(rpcUrl) });
 
-    const uniqueAssets = [...new Set(onChainData.map((d) => d.vault.assetAddress).filter(Boolean))];
-    let prices: Record<string, { price: number }> = {};
+      // Read totalAssets on-chain for each vault
+      const onChainData = await chainVaults.reduce(
+        async (accP, vault) => {
+          const acc = await accP;
+          try {
+            const totalAssets = await client.readContract({
+              address: vault.address as Address,
+              abi: TOTAL_ASSETS_ABI,
+              functionName: "totalAssets",
+            });
+            return [...acc, { vault, totalAssets }];
+          } catch (err) {
+            console.log(`    Failed to read ${vault.name}: ${(err as Error).message.slice(0, 60)}`);
+            return acc;
+          }
+        },
+        Promise.resolve([] as { vault: (typeof chainVaults)[0]; totalAssets: bigint }[]),
+      );
 
-    if (prefix && uniqueAssets.length > 0) {
-      const coinKeys = uniqueAssets.map((a) => `${prefix}:${a}`).join(",");
-      try {
-        const res = await fetch(`https://coins.llama.fi/prices/current/${coinKeys}`);
-        if (res.ok) {
-          const data = (await res.json()) as { coins: Record<string, { price: number }> };
-          prices = data.coins;
+      // Price underlying tokens via DL
+      const prefix = CHAIN_PREFIXES[chainId];
+      if (!prefix) {
+        console.log(`    No DL price prefix for chain ${chainId}, using stablecoin fallback`);
+      }
+
+      const uniqueAssets = [...new Set(onChainData.map((d) => d.vault.assetAddress).filter(Boolean))];
+      const prices: Record<string, { price: number }> = await (async () => {
+        if (prefix && uniqueAssets.length > 0) {
+          const coinKeys = uniqueAssets.map((a) => `${prefix}:${a}`).join(",");
+          try {
+            const res = await fetch(`https://coins.llama.fi/prices/current/${coinKeys}`);
+            if (res.ok) {
+              const data = (await res.json()) as { coins: Record<string, { price: number }> };
+              return data.coins;
+            }
+          } catch {
+            console.log(`    Failed to fetch DL prices`);
+          }
         }
-      } catch {
-        console.log(`    Failed to fetch DL prices`);
-      }
-    }
+        return {};
+      })();
 
-    // Update snapshots
-    const now = new Date().toISOString();
-    for (const { vault, totalAssets } of onChainData) {
-      const decimals = vault.assetDecimals || 18;
+      // Update snapshots
+      const now = new Date().toISOString();
+      return onChainData.reduce(async (innerAccP, { vault, totalAssets }) => {
+        const innerAcc = await innerAccP;
+        const decimals = vault.assetDecimals || 18;
 
-      // Price lookup
-      let tvlUsd = 0;
-      const priceKey = prefix ? `${prefix}:${vault.assetAddress}` : null;
-      const priceInfo = priceKey ? prices[priceKey] : null;
+        // Price lookup
+        const priceKey = prefix ? `${prefix}:${vault.assetAddress}` : null;
+        const priceInfo = priceKey ? prices[priceKey] : null;
 
-      if (priceInfo && priceInfo.price > 0) {
-        tvlUsd = (Number(totalAssets) / 10 ** decimals) * priceInfo.price;
-      } else {
-        // Stablecoin fallback
-        const stables = ["USDC", "USDT", "DAI", "FRAX", "LUSD", "MIM", "DOLA"];
-        if (stables.includes(vault.assetSymbol)) {
-          tvlUsd = Number(formatUnits(totalAssets, decimals));
+        const tvlUsd = (() => {
+          if (priceInfo && priceInfo.price > 0) {
+            return (Number(totalAssets) / 10 ** decimals) * priceInfo.price;
+          }
+          // Stablecoin fallback
+          const stables = ["USDC", "USDT", "DAI", "FRAX", "LUSD", "MIM", "DOLA"];
+          if (stables.includes(vault.assetSymbol)) {
+            return Number(formatUnits(totalAssets, decimals));
+          }
+          return 0;
+        })();
+
+        const oldTvl = vault.oldTvlUsd || 0;
+        const changed = Math.abs(tvlUsd - oldTvl) > 1;
+
+        const updatedInc = changed ? 1 : 0;
+        if (changed) {
+          // Insert new snapshot with fresh data
+          await db.insert(vaultSnapshots).values({
+            vaultId: vault.id,
+            tvlUsd,
+            totalAssets: totalAssets.toString(),
+            timestamp: now,
+          });
+
+          const delta = tvlUsd - oldTvl;
+          console.log(
+            `    ${vault.name}: $${(oldTvl / 1e3).toFixed(1)}K → $${(tvlUsd / 1e3).toFixed(1)}K (${delta > 0 ? "+" : ""}$${(delta / 1e3).toFixed(1)}K)`,
+          );
         }
-      }
 
-      const oldTvl = vault.oldTvlUsd || 0;
-      const changed = Math.abs(tvlUsd - oldTvl) > 1;
-
-      if (changed) {
-        // Insert new snapshot with fresh data
-        await db.insert(vaultSnapshots).values({
-          vaultId: vault.id,
-          tvlUsd,
-          totalAssets: totalAssets.toString(),
-          timestamp: now,
-        });
-
-        const delta = tvlUsd - oldTvl;
-        console.log(
-          `    ${vault.name}: $${(oldTvl / 1e3).toFixed(1)}K → $${(tvlUsd / 1e3).toFixed(1)}K (${delta > 0 ? "+" : ""}$${(delta / 1e3).toFixed(1)}K)`,
-        );
-        updated++;
-      }
-
-      totalNewTvl += tvlUsd;
-    }
-  }
+        return { updated: innerAcc.updated + updatedInc, totalNewTvl: innerAcc.totalNewTvl + tvlUsd };
+      }, Promise.resolve(outerAcc));
+    },
+    Promise.resolve({ updated: 0, totalNewTvl: 0 }),
+  );
 
   console.log(`\nUpdated ${updated} vault snapshots`);
   console.log(`Total retired vault TVL (refreshed): $${(totalNewTvl / 1e6).toFixed(2)}M`);

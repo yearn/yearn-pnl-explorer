@@ -121,35 +121,34 @@ export const getDeadTvlAnalysis = async (chainId?: number): Promise<DeadTvlResul
     (r) => r.performanceFee || 0,
   );
 
-  const result: DeadTvlVault[] = [];
+  const result = activeVaults
+    .map((vault) => {
+      const tvlUsd = vault.tvlUsd ?? 0;
+      if (!isAnalysisEligible(vault, tvlUsd)) return null;
 
-  for (const vault of activeVaults) {
-    const tvlUsd = vault.tvlUsd ?? 0;
-    if (!isAnalysisEligible(vault, tvlUsd)) continue;
+      const reportAgg = reportMap.get(vault.id);
+      const gains365d = reportAgg?.totalGain || 0;
+      const reportCount365d = reportAgg?.count || 0;
+      const gainToTvlRatio = tvlUsd > 0 ? gains365d / tvlUsd : 0;
 
-    const reportAgg = reportMap.get(vault.id);
-    const gains365d = reportAgg?.totalGain || 0;
-    const reportCount365d = reportAgg?.count || 0;
-    const gainToTvlRatio = tvlUsd > 0 ? gains365d / tvlUsd : 0;
+      const classification = classify(reportCount365d > 0, gainToTvlRatio);
 
-    const classification = classify(reportCount365d > 0, gainToTvlRatio);
-
-    result.push({
-      address: vault.address,
-      chainId: vault.chainId,
-      name: vault.name,
-      category: vault.category as VaultCategory,
-      tvlUsd,
-      gains365d,
-      gainToTvlRatio,
-      feeRevenue365d: gains365d * ((feeMap.get(vault.id) || 0) / 10000),
-      classification,
-      lastReportDate: reportAgg?.lastReport ? new Date(reportAgg.lastReport * 1000).toISOString() : null,
-      reportCount365d,
-    });
-  }
-
-  result.sort((a, b) => b.tvlUsd - a.tvlUsd);
+      return {
+        address: vault.address,
+        chainId: vault.chainId,
+        name: vault.name,
+        category: vault.category as VaultCategory,
+        tvlUsd,
+        gains365d,
+        gainToTvlRatio,
+        feeRevenue365d: gains365d * ((feeMap.get(vault.id) || 0) / 10000),
+        classification,
+        lastReportDate: reportAgg?.lastReport ? new Date(reportAgg.lastReport * 1000).toISOString() : null,
+        reportCount365d,
+      } satisfies DeadTvlVault;
+    })
+    .filter((v): v is DeadTvlVault => v !== null)
+    .sort((a, b) => b.tvlUsd - a.tvlUsd);
 
   const summary = result.reduce(
     (acc, v) => {

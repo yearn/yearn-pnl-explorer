@@ -130,11 +130,11 @@ export const getProfitability = async (chainId?: number): Promise<ProfitabilityS
 
   // Compute overlap deductions per target vault
   const overlaps = await computeOverlap();
-  const overlapByTarget = new Map<string, number>();
-  for (const o of overlaps) {
+  const overlapByTarget = overlaps.reduce((acc, o) => {
     const key = `${o.chainId}:${o.targetVault.toLowerCase()}`;
-    overlapByTarget.set(key, (overlapByTarget.get(key) || 0) + o.overlapUsd);
-  }
+    acc.set(key, (acc.get(key) || 0) + o.overlapUsd);
+    return acc;
+  }, new Map<string, number>());
 
   // Build fee rate lookup (latest per vault)
   const latestFees = latestFeeConfigIds();

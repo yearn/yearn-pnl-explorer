@@ -64,9 +64,7 @@ const fetchTransfers = async (chainId: number, vaultAddress: string): Promise<Ko
 };
 
 const buildDepositorMap = (transfers: KongTransfer[]): Map<string, DepositorEntry> => {
-  const map = new Map<string, DepositorEntry>();
-
-  for (const t of transfers) {
+  return transfers.reduce((map, t) => {
     const valueUsd = t.valueUsd ?? 0;
     const blockTime = t.blockTime;
 
@@ -95,9 +93,9 @@ const buildDepositorMap = (transfers: KongTransfer[]): Map<string, DepositorEntr
         map.set(addr, { address: addr, netUsd: -valueUsd, firstSeen: blockTime, lastSeen: blockTime });
       }
     }
-  }
 
-  return map;
+    return map;
+  }, new Map<string, DepositorEntry>());
 };
 
 const blockTimeToIso = (blockTime: string): string => {
@@ -110,9 +108,9 @@ const blockTimeToIso = (blockTime: string): string => {
 };
 
 const upsertDepositors = async (vaultId: number, chainId: number, depositorMap: Map<string, DepositorEntry>): Promise<number> => {
-  let count = 0;
+  return [...depositorMap.values()].reduce(async (accPromise, entry) => {
+    const count = await accPromise;
 
-  for (const entry of depositorMap.values()) {
     const existing = await db.query.depositors.findFirst({
       where: and(eq(depositors.address, entry.address), eq(depositors.vaultId, vaultId)),
     });
@@ -141,10 +139,8 @@ const upsertDepositors = async (vaultId: number, chainId: number, depositorMap: 
       });
     }
 
-    count++;
-  }
-
-  return count;
+    return count + 1;
+  }, Promise.resolve(0));
 };
 
 export const fetchAndStoreDepositors = async () => {
@@ -155,33 +151,40 @@ export const fetchAndStoreDepositors = async () => {
 
   console.log(`Found ${activeVaults.length} active Ethereum vaults to process`);
 
-  let totalDepositors = 0;
-  let vaultsWithData = 0;
-  const perVaultCounts: Array<{ name: string; address: string; count: number }> = [];
+  const { totalDepositors, vaultsWithData, perVaultCounts } = await activeVaults.reduce(
+    async (accPromise, vault) => {
+      const acc = await accPromise;
+      const transfers = await fetchTransfers(vault.chainId, vault.address);
 
-  for (const vault of activeVaults) {
-    const transfers = await fetchTransfers(vault.chainId, vault.address);
+      if (transfers.length === 0) {
+        return acc;
+      }
 
-    if (transfers.length === 0) {
-      continue;
-    }
+      const depositorMap = buildDepositorMap(transfers);
 
-    const depositorMap = buildDepositorMap(transfers);
+      if (depositorMap.size === 0) {
+        return acc;
+      }
 
-    if (depositorMap.size === 0) {
-      continue;
-    }
+      const count = await upsertDepositors(vault.id, vault.chainId, depositorMap);
 
-    const count = await upsertDepositors(vault.id, vault.chainId, depositorMap);
-    totalDepositors += count;
-    vaultsWithData++;
-    perVaultCounts.push({ name: vault.name ?? vault.address, address: vault.address, count });
+      console.log(`  ${vault.name ?? vault.address.slice(0, 10)}: ${transfers.length} transfers -> ${count} depositors`);
 
-    console.log(`  ${vault.name ?? vault.address.slice(0, 10)}: ${transfers.length} transfers -> ${count} depositors`);
+      // Small delay to avoid hammering the API
+      await new Promise((r) => setTimeout(r, 100));
 
-    // Small delay to avoid hammering the API
-    await new Promise((r) => setTimeout(r, 100));
-  }
+      return {
+        totalDepositors: acc.totalDepositors + count,
+        vaultsWithData: acc.vaultsWithData + 1,
+        perVaultCounts: [...acc.perVaultCounts, { name: vault.name ?? vault.address, address: vault.address, count }],
+      };
+    },
+    Promise.resolve({
+      totalDepositors: 0,
+      vaultsWithData: 0,
+      perVaultCounts: [] as Array<{ name: string; address: string; count: number }>,
+    }),
+  );
 
   // Print summary
   console.log("\n--- Summary ---");
@@ -190,10 +193,11 @@ export const fetchAndStoreDepositors = async () => {
 
   if (perVaultCounts.length > 0) {
     console.log("\nPer-vault depositor counts:");
-    const sorted = perVaultCounts.sort((a, b) => b.count - a.count);
-    for (const v of sorted) {
-      console.log(`  ${v.name} (${v.address.slice(0, 10)}...): ${v.count} depositors`);
-    }
+    perVaultCounts
+      .sort((a, b) => b.count - a.count)
+      .forEach((v) => {
+        console.log(`  ${v.name} (${v.address.slice(0, 10)}...): ${v.count} depositors`);
+      });
   }
 
   return { totalDepositors, vaultsWithData, totalVaults: activeVaults.length };

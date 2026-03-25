@@ -87,73 +87,69 @@ export const getAuditTree = async (filters?: { chainId?: number }): Promise<Audi
   const registryByKey = new Map(STRATEGY_OVERLAP_REGISTRY.map((e) => [`${e.chainId}:${e.strategyAddress.toLowerCase()}`, e]));
 
   // Build audit vaults from snapshots
-  const auditVaults: AuditVault[] = [];
-  let summedTvl = 0;
+  const filteredSnapshots = snapshots.filter(({ vault }) => !filters?.chainId || vault.chainId === filters.chainId);
 
-  for (const { vault, snapshot } of snapshots) {
-    if (filters?.chainId && vault.chainId !== filters.chainId) continue;
+  const summedTvl = filteredSnapshots.reduce((sum, { snapshot }) => sum + (snapshot.tvlUsd ?? 0), 0);
 
-    const tvl = snapshot.tvlUsd ?? 0;
-    summedTvl += tvl;
+  const auditVaults = filteredSnapshots
+    .map(({ vault, snapshot }) => {
+      const tvl = snapshot.tvlUsd ?? 0;
 
-    const vaultStrats = strategiesByVault.get(vault.id) ?? [];
-    const auditStrats: AuditStrategy[] = [];
+      const vaultStrats = strategiesByVault.get(vault.id) ?? [];
+      const auditStrats = vaultStrats
+        .map((strat) => {
+          const debtUsd = debtByStrategy.get(strat.id) ?? 0;
 
-    for (const strat of vaultStrats) {
-      const debtUsd = debtByStrategy.get(strat.id) ?? 0;
+          // Check auto-detection: strategy address = another vault on same chain
+          const targetKey = `${vault.chainId}:${strat.address.toLowerCase()}`;
+          const autoTarget = vaultByAddress.get(targetKey);
+          const isAutoOverlap = autoTarget && autoTarget.id !== vault.id;
 
-      // Check auto-detection: strategy address = another vault on same chain
-      const targetKey = `${vault.chainId}:${strat.address.toLowerCase()}`;
-      const autoTarget = vaultByAddress.get(targetKey);
-      const isAutoOverlap = autoTarget && autoTarget.id !== vault.id;
+          // Check registry-detection
+          const registryEntry = registryByKey.get(targetKey);
 
-      // Check registry-detection
-      const registryEntry = registryByKey.get(targetKey);
+          const overlapInfo = isAutoOverlap
+            ? {
+                targetVaultAddress: autoTarget.address as string | null,
+                targetVaultChainId: autoTarget.chainId as number | null,
+                detectionMethod: "auto" as const,
+                label: null as string | null,
+              }
+            : registryEntry
+              ? {
+                  targetVaultAddress: registryEntry.targetVaultAddress as string | null,
+                  targetVaultChainId: registryEntry.chainId as number | null,
+                  detectionMethod: "registry" as const,
+                  label: registryEntry.label as string | null,
+                }
+              : {
+                  targetVaultAddress: null as string | null,
+                  targetVaultChainId: null as number | null,
+                  detectionMethod: null as "auto" | "registry" | null,
+                  label: null as string | null,
+                };
 
-      let targetVaultAddress: string | null = null;
-      let targetVaultChainId: number | null = null;
-      let detectionMethod: "auto" | "registry" | null = null;
-      let label: string | null = null;
+          return {
+            address: strat.address,
+            name: strat.name,
+            debtUsd,
+            ...overlapInfo,
+          };
+        })
+        .sort((a, b) => b.debtUsd - a.debtUsd);
 
-      if (isAutoOverlap) {
-        targetVaultAddress = autoTarget.address;
-        targetVaultChainId = autoTarget.chainId;
-        detectionMethod = "auto";
-      } else if (registryEntry) {
-        targetVaultAddress = registryEntry.targetVaultAddress;
-        targetVaultChainId = registryEntry.chainId;
-        detectionMethod = "registry";
-        label = registryEntry.label;
-      }
-
-      auditStrats.push({
-        address: strat.address,
-        name: strat.name,
-        debtUsd,
-        targetVaultAddress,
-        targetVaultChainId,
-        detectionMethod,
-        label,
-      });
-    }
-
-    // Sort strategies by debt descending
-    auditStrats.sort((a, b) => b.debtUsd - a.debtUsd);
-
-    auditVaults.push({
-      address: vault.address,
-      chainId: vault.chainId,
-      name: vault.name,
-      category: vault.category as VaultCategory,
-      vaultType: vault.vaultType,
-      tvlUsd: tvl,
-      isRetired: vault.isRetired ?? false,
-      strategies: auditStrats,
-    });
-  }
-
-  // Sort vaults by TVL descending
-  auditVaults.sort((a, b) => b.tvlUsd - a.tvlUsd);
+      return {
+        address: vault.address,
+        chainId: vault.chainId,
+        name: vault.name,
+        category: vault.category as VaultCategory,
+        vaultType: vault.vaultType,
+        tvlUsd: tvl,
+        isRetired: vault.isRetired ?? false,
+        strategies: auditStrats,
+      };
+    })
+    .sort((a, b) => b.tvlUsd - a.tvlUsd);
 
   // Sum overlap: total debt of strategies that deposit into other vaults
   const overlapTvl = auditVaults.reduce(

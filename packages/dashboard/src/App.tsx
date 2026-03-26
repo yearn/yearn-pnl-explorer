@@ -1,20 +1,11 @@
 import { createContext, lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { CommandPalette } from "./components/CommandPalette";
-import { ErrorBoundary } from "./components/ErrorBoundary";
 import { SkeletonCards, SkeletonChart, timeAgo } from "./hooks";
 import "./styles.css";
 
-const TvlOverview = lazy(() => import("./panels/TvlOverview").then((m) => ({ default: m.TvlOverview })));
-const ComparisonPanel = lazy(() => import("./panels/ComparisonPanel").then((m) => ({ default: m.ComparisonPanel })));
-const FeesPanel = lazy(() => import("./panels/FeesPanel").then((m) => ({ default: m.FeesPanel })));
-const AuditPanel = lazy(() => import("./panels/AuditPanel").then((m) => ({ default: m.AuditPanel })));
+const PnlPanel = lazy(() => import("./panels/PnlPanel").then((m) => ({ default: m.PnlPanel })));
 
-const TABS = [
-  { key: "Overview", icon: "\u25A3", label: "Overview" },
-  { key: "Fees", icon: "\u2234", label: "Fees" },
-  { key: "Vaults", icon: "\u2263", label: "Vaults & Curation" },
-  { key: "Comparison", icon: "\u21C4", label: "Comparison" },
-] as const;
+const TABS = [{ key: "PnL", icon: "\u25C8", label: "PnL Explorer" }] as const;
 type Tab = (typeof TABS)[number]["key"];
 
 export type Theme = "dark" | "light";
@@ -26,42 +17,13 @@ export const DashboardContext = createContext<{
   theme: Theme;
   lastFetchedAt: number | null;
   setLastFetchedAt: (ts: number) => void;
-}>({ chainFilter: "all", density: "comfortable", theme: "dark", lastFetchedAt: null, setLastFetchedAt: () => {} });
-
-const CHAINS = [
-  { id: "all", label: "All Chains" },
-  { id: "1", label: "Ethereum" },
-  { id: "10", label: "Optimism" },
-  { id: "137", label: "Polygon" },
-  { id: "42161", label: "Arbitrum" },
-  { id: "8453", label: "Base" },
-  { id: "100", label: "Gnosis" },
-  { id: "747474", label: "Katana" },
-  { id: "999", label: "Hyperliquid" },
-  { id: "80094", label: "Berachain" },
-  { id: "146", label: "Sonic" },
-];
-
-// ── Hash-based routing ──
-
-function parseHash(): { tab: Tab; chain: string; density: Density; theme: Theme } {
-  const params = new URLSearchParams(window.location.hash.slice(1));
-  const tab = (params.get("tab") || "Overview") as Tab;
-  const chain = params.get("chain") || "all";
-  const density = (params.get("density") || "comfortable") as Density;
-  const theme = (params.get("theme") || localStorage.getItem("theme") || "dark") as Theme;
-  const validTab = TABS.some((t) => t.key === tab) ? tab : "Overview";
-  return { tab: validTab, chain, density, theme };
-}
-
-function writeHash(tab: Tab, chain: string, density: Density) {
-  const params = new URLSearchParams();
-  if (tab !== "Overview") params.set("tab", tab);
-  if (chain !== "all") params.set("chain", chain);
-  if (density !== "comfortable") params.set("density", density);
-  const hash = params.toString();
-  window.history.replaceState(null, "", hash ? `#${hash}` : window.location.pathname);
-}
+}>({
+  chainFilter: "all",
+  density: "comfortable",
+  theme: "dark",
+  lastFetchedAt: null,
+  setLastFetchedAt: () => {},
+});
 
 function PanelFallback() {
   return (
@@ -73,44 +35,26 @@ function PanelFallback() {
 }
 
 export const App = () => {
-  const initial = parseHash();
-  const [tab, setTab] = useState<Tab>(initial.tab);
-  const [chainFilter, setChainFilter] = useState(initial.chain);
-  const [density, setDensity] = useState<Density>(initial.density);
-  const [theme, setTheme] = useState<Theme>(initial.theme);
+  const [tab, setTab] = useState<Tab>("PnL");
   const [collapsed, setCollapsed] = useState(false);
   const [cmdkOpen, setCmdkOpen] = useState(false);
+  const [theme, setTheme] = useState<Theme>(() => {
+    if (typeof window === "undefined") return "dark";
+    const savedTheme = localStorage.getItem("theme");
+    return savedTheme === "light" ? "light" : "dark";
+  });
   const [lastFetchedAt, setLastFetchedAt] = useState<number | null>(null);
 
-  // Sync hash on state changes
-  useEffect(() => {
-    writeHash(tab, chainFilter, density);
-  }, [tab, chainFilter, density]);
-
-  // Listen for hash changes (browser back/forward)
-  useEffect(() => {
-    const handler = () => {
-      const parsed = parseHash();
-      setTab(parsed.tab);
-      setChainFilter(parsed.chain);
-      setDensity(parsed.density);
-    };
-    window.addEventListener("hashchange", handler);
-    return () => window.removeEventListener("hashchange", handler);
-  }, []);
-
-  // Apply theme class to document
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
     localStorage.setItem("theme", theme);
   }, [theme]);
 
-  // Cmd+K shortcut
   useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
-        e.preventDefault();
-        setCmdkOpen((v) => !v);
+    const handler = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key === "k") {
+        event.preventDefault();
+        setCmdkOpen((open) => !open);
       }
     };
     window.addEventListener("keydown", handler);
@@ -118,39 +62,42 @@ export const App = () => {
   }, []);
 
   const handleNavigate = useCallback((tabName: string) => {
-    const match = TABS.find((t) => t.key === tabName);
+    const match = TABS.find((item) => item.key === tabName);
     if (match) setTab(match.key);
   }, []);
 
-  const handleChainSelect = useCallback((chain: string) => {
-    setChainFilter(chain);
-  }, []);
-
   const toggleTheme = useCallback(() => {
-    setTheme((t) => (t === "dark" ? "light" : "dark"));
+    setTheme((currentTheme) => (currentTheme === "dark" ? "light" : "dark"));
   }, []);
 
   return (
-    <DashboardContext.Provider value={{ chainFilter, density, theme, lastFetchedAt, setLastFetchedAt }}>
+    <DashboardContext.Provider
+      value={{
+        chainFilter: "all",
+        density: "comfortable",
+        theme,
+        lastFetchedAt,
+        setLastFetchedAt,
+      }}
+    >
       <div className={`app${collapsed ? " sidebar-collapsed" : ""}`}>
-        {/* ── Sidebar ── */}
         <aside className={`sidebar${collapsed ? " collapsed" : ""}`}>
           <div className="sidebar-header">
             <div className="sidebar-logo">Y</div>
-            <span className="sidebar-title">Yearn Metrics</span>
+            <span className="sidebar-title">Yearn PnL</span>
           </div>
 
           <nav className="sidebar-nav" aria-label="Main navigation">
-            {TABS.map((t) => (
+            {TABS.map((item) => (
               <button
-                key={t.key}
-                className={tab === t.key ? "active" : ""}
-                onClick={() => setTab(t.key)}
-                title={collapsed ? t.label : undefined}
-                aria-current={tab === t.key ? "page" : undefined}
+                key={item.key}
+                className={tab === item.key ? "active" : ""}
+                onClick={() => setTab(item.key)}
+                title={collapsed ? item.label : undefined}
+                aria-current={tab === item.key ? "page" : undefined}
               >
-                <span className="nav-icon">{t.icon}</span>
-                <span className="nav-label">{t.label}</span>
+                <span className="nav-icon">{item.icon}</span>
+                <span className="nav-label">{item.label}</span>
               </button>
             ))}
           </nav>
@@ -158,7 +105,7 @@ export const App = () => {
           <div className="sidebar-footer">
             <button
               className="sidebar-toggle"
-              onClick={() => setCollapsed((c) => !c)}
+              onClick={() => setCollapsed((value) => !value)}
               title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
               aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
             >
@@ -167,10 +114,15 @@ export const App = () => {
           </div>
         </aside>
 
-        {/* ── Main Content ── */}
         <div className="main-area">
           <div className="top-bar">
-            <span className="top-bar-title">{TABS.find((t) => t.key === tab)?.label}</span>
+            <div>
+              <span className="top-bar-title">{TABS.find((item) => item.key === tab)?.label}</span>
+              <div className="top-bar-subtitle">
+                Frontend shell only. TVL views are disabled while PnL replaces them.
+              </div>
+            </div>
+
             <div className="toolbar-right">
               {lastFetchedAt && (
                 <span className="freshness-indicator" title={new Date(lastFetchedAt).toLocaleTimeString()}>
@@ -180,38 +132,6 @@ export const App = () => {
                   </span>
                 </span>
               )}
-
-              <select
-                className="filter-select"
-                value={chainFilter}
-                onChange={(e) => setChainFilter(e.target.value)}
-                aria-label="Filter by chain"
-              >
-                {CHAINS.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.label}
-                  </option>
-                ))}
-              </select>
-
-              <div className="density-toggle" role="group" aria-label="Table density">
-                <button
-                  className={density === "comfortable" ? "active" : ""}
-                  onClick={() => setDensity("comfortable")}
-                  title="Comfortable"
-                  aria-pressed={density === "comfortable"}
-                >
-                  &#9776;
-                </button>
-                <button
-                  className={density === "compact" ? "active" : ""}
-                  onClick={() => setDensity("compact")}
-                  title="Compact"
-                  aria-pressed={density === "compact"}
-                >
-                  &#9783;
-                </button>
-              </div>
 
               <button
                 className="theme-toggle"
@@ -232,12 +152,7 @@ export const App = () => {
           <main>
             <Suspense fallback={<PanelFallback />}>
               <div className="panel-enter" key={tab}>
-                <ErrorBoundary key={tab}>
-                  {tab === "Overview" && <TvlOverview />}
-                  {tab === "Comparison" && <ComparisonPanel />}
-                  {tab === "Fees" && <FeesPanel />}
-                  {tab === "Vaults" && <AuditPanel />}
-                </ErrorBoundary>
+                {tab === "PnL" && <PnlPanel />}
               </div>
             </Suspense>
           </main>
@@ -247,8 +162,6 @@ export const App = () => {
           isOpen={cmdkOpen}
           onClose={() => setCmdkOpen(false)}
           onNavigate={handleNavigate}
-          onChainSelect={handleChainSelect}
-          chainFilter={chainFilter}
         />
       </div>
     </DashboardContext.Provider>

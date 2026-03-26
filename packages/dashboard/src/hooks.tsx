@@ -6,18 +6,21 @@ export const API_BASE = import.meta.env.VITE_API_URL || "";
 const fetchCache = new Map<string, { data: unknown; timestamp: number }>();
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
-export function useFetch<T>(url: string) {
+export function useFetch<T>(url: string | null) {
   const [data, setData] = useState<T | null>(() => {
+    if (!url) return null;
     const cached = fetchCache.get(url);
     if (cached && Date.now() - cached.timestamp < CACHE_TTL) return cached.data as T;
     return null;
   });
   const [loading, setLoading] = useState(() => {
+    if (!url) return false;
     const cached = fetchCache.get(url);
     return !(cached && Date.now() - cached.timestamp < CACHE_TTL);
   });
   const [error, setError] = useState<string | null>(null);
   const [fetchedAt, setFetchedAt] = useState<number | null>(() => {
+    if (!url) return null;
     const cached = fetchCache.get(url);
     if (cached && Date.now() - cached.timestamp < CACHE_TTL) return cached.timestamp;
     return null;
@@ -27,6 +30,16 @@ export function useFetch<T>(url: string) {
 
   const doFetch = useCallback(
     (bypassCache = false) => {
+      if (!url) {
+        abortRef.current?.abort();
+        abortRef.current = null;
+        setData(null);
+        setLoading(false);
+        setError(null);
+        setFetchedAt(null);
+        return;
+      }
+
       // Abort any in-flight request
       abortRef.current?.abort();
       const controller = new AbortController();
@@ -43,9 +56,12 @@ export function useFetch<T>(url: string) {
         }
       }
 
+      setData(null);
+      setFetchedAt(null);
+      setError(null);
       setLoading(true);
       fetch(`${API_BASE}${url}`, { signal: controller.signal })
-        .then((r) => {
+      .then((r) => {
           if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
           return r.json();
         })
@@ -74,6 +90,7 @@ export function useFetch<T>(url: string) {
   }, [doFetch, retryCount]);
 
   const retry = useCallback(() => {
+    if (!url) return;
     fetchCache.delete(url);
     setError(null);
     setRetryCount((c) => c + 1);

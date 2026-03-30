@@ -1206,478 +1206,479 @@ export function PnlPanel() {
 
   return (
     <>
-      <div className="card">
-        <h2>PnL Lookup</h2>
-        <div className="pnl-hero">
-          <div className="pnl-hero-copy">
-            <div className="pnl-eyebrow">Address Page</div>
-            <div className="pnl-headline">Inspect Yearn holdings, PnL, and lot provenance from one address view.</div>
-            <div className="pnl-helper">
-              Overview cards and tables come from the compact `/api/holdings/pnl` response. Lot-level inspection is loaded on demand from the excessive drilldown route for the selected vault family.
-            </div>
-            <div className="pnl-helper">
-              Fetch profile: <span className="text-accent">{DEFAULT_FETCH_TYPE}</span> +{" "}
-              <span className="text-accent">{DEFAULT_PAGINATION_MODE}</span>
-            </div>
+      <div className="pnl-page">
+        <div className="card pnl-lookup-card">
+          <h2>PnL Lookup</h2>
+          <div className="pnl-hero">
+            <div className="pnl-hero-copy">
+              <div className="pnl-eyebrow">Address Page</div>
+              <div className="pnl-headline">Inspect Yearn holdings, PnL, and lot provenance from one address view.</div>
+              <div className="pnl-helper">
+                Overview cards and tables come from the compact `/api/holdings/pnl` response. Lot-level inspection is loaded on demand from the excessive drilldown route for the selected vault family.
+              </div>
+              <div className="pnl-helper">
+                Fetch profile: <span className="text-accent">{DEFAULT_FETCH_TYPE}</span> +{" "}
+                <span className="text-accent">{DEFAULT_PAGINATION_MODE}</span>
+              </div>
 
-            <div className="pnl-list pnl-mode-list">
-              {UNKNOWN_MODE_ORDER.map((mode) => (
-                <div
-                  key={mode}
-                  className={`pnl-list-row pnl-mode-row${mode === unknownMode ? " is-active" : ""}`}
-                >
-                  <div className="pnl-mode-label">
-                    <span>{UNKNOWN_MODE_COPY[mode].title}</span>
-                    {mode === unknownMode && <span className="badge badge-healthy">active</span>}
+              <div className="pnl-list pnl-mode-list">
+                {UNKNOWN_MODE_ORDER.map((mode) => (
+                  <div
+                    key={mode}
+                    className={`pnl-list-row pnl-mode-row${mode === unknownMode ? " is-active" : ""}`}
+                  >
+                    <div className="pnl-mode-label">
+                      <span>{UNKNOWN_MODE_COPY[mode].title}</span>
+                      {mode === unknownMode && <span className="badge badge-healthy">active</span>}
+                    </div>
+                    <div className="pnl-mode-desc">{UNKNOWN_MODE_COPY[mode].description}</div>
                   </div>
-                  <div className="pnl-mode-desc">{UNKNOWN_MODE_COPY[mode].description}</div>
-                </div>
-              ))}
+                ))}
+              </div>
+
+              {activeFetchedAt && <div className="pnl-helper">Last refreshed {timeAgo(activeFetchedAt)}.</div>}
             </div>
 
-            {activeFetchedAt && <div className="pnl-helper">Last refreshed {timeAgo(activeFetchedAt)}.</div>}
+            <form className="pnl-address-form" onSubmit={handleSubmit}>
+              <label className="pnl-form-label" htmlFor="holdings-address">
+                Address
+              </label>
+              <input
+                id="holdings-address"
+                className="search-input pnl-address-input"
+                placeholder={EXAMPLE_ADDRESS}
+                value={address}
+                onChange={(event) => setAddress(event.target.value)}
+                autoCapitalize="off"
+                autoCorrect="off"
+                spellCheck={false}
+              />
+
+              <div className="filter-bar" style={{ marginBottom: 0 }}>
+                <select
+                  className="filter-select"
+                  value={version}
+                  onChange={(event) => setVersion(event.target.value as VaultVersion)}
+                >
+                  <option value="all">All Vault Families</option>
+                  <option value="v3">V3 Only</option>
+                  <option value="v2">V2 Only</option>
+                </select>
+
+                <select
+                  className="filter-select"
+                  value={unknownMode}
+                  onChange={(event) => setUnknownMode(event.target.value as UnknownMode)}
+                >
+                  <option value="windfall">Windfall Mode</option>
+                  <option value="zero_basis">Zero Basis Mode</option>
+                  <option value="strict">Strict Mode</option>
+                </select>
+              </div>
+
+              <div className="pnl-form-actions">
+                <button type="submit" className="btn-primary">
+                  Load PnL
+                </button>
+                <button type="button" className="btn-export" onClick={loadExample}>
+                  Load Example
+                </button>
+              </div>
+
+              <div className="pnl-helper">
+                {submittedAddress
+                  ? `Current lookup: ${submittedAddress}`
+                  : "No request will be sent until an address is submitted."}
+              </div>
+            </form>
           </div>
-
-          <form className="pnl-address-form" onSubmit={handleSubmit}>
-            <label className="pnl-form-label" htmlFor="holdings-address">
-              Address
-            </label>
-            <input
-              id="holdings-address"
-              className="search-input pnl-address-input"
-              placeholder={EXAMPLE_ADDRESS}
-              value={address}
-              onChange={(event) => setAddress(event.target.value)}
-              autoCapitalize="off"
-              autoCorrect="off"
-              spellCheck={false}
-            />
-
-            <div className="filter-bar" style={{ marginBottom: 0 }}>
-              <select
-                className="filter-select"
-                value={version}
-                onChange={(event) => setVersion(event.target.value as VaultVersion)}
-              >
-                <option value="all">All Vault Families</option>
-                <option value="v3">V3 Only</option>
-                <option value="v2">V2 Only</option>
-              </select>
-
-              <select
-                className="filter-select"
-                value={unknownMode}
-                onChange={(event) => setUnknownMode(event.target.value as UnknownMode)}
-              >
-                <option value="windfall">Windfall Mode</option>
-                <option value="zero_basis">Zero Basis Mode</option>
-                <option value="strict">Strict Mode</option>
-              </select>
-            </div>
-
-            <div className="pnl-form-actions">
-              <button type="submit" className="btn-primary">
-                Load PnL
-              </button>
-              <button type="button" className="btn-export" onClick={loadExample}>
-                Load Example
-              </button>
-            </div>
-
-            <div className="pnl-helper">
-              {submittedAddress
-                ? `Current lookup: ${submittedAddress}`
-                : "No request will be sent until an address is submitted."}
-            </div>
-          </form>
         </div>
-      </div>
+        {combinedError && <div className="error">Error: {combinedError}</div>}
 
-      {combinedError && <div className="error">Error: {combinedError}</div>}
+        {!submittedAddress && !combinedError && (
+          <div className="card">
+            <h2>Ready For Lookup</h2>
+            <p className="text-dim" style={{ marginBottom: 0 }}>
+              Submit an address to load a compact portfolio overview first, then inspect individual vault families with the excessive drilldown drawer only when needed.
+            </p>
+          </div>
+        )}
 
-      {!submittedAddress && !combinedError && (
-        <div className="card">
-          <h2>Ready For Lookup</h2>
-          <p className="text-dim" style={{ marginBottom: 0 }}>
-            Submit an address to load a compact portfolio overview first, then inspect individual vault families with the excessive drilldown drawer only when needed.
-          </p>
-        </div>
-      )}
+        {isOverviewLoading && (
+          <>
+            <SkeletonCards count={6} />
+            <SkeletonChart />
+          </>
+        )}
 
-      {isOverviewLoading && (
-        <>
-          <SkeletonCards count={6} />
-          <SkeletonChart />
-        </>
-      )}
-
-      {pnl && history && !isOverviewLoading && (
-        <>
-          {warnings.length > 0 && (
-            <div className="pnl-alert-grid">
-              {warnings.map((warning) => (
-                <div key={warning.title} className={`pnl-alert pnl-alert-${warning.tone}`}>
-                  <div className="pnl-alert-title">{warning.title}</div>
-                  <div className="pnl-alert-body">{warning.description}</div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          <div className="metric-grid">
-            <div className="metric metric-accent">
-              <div className="label">Current Value</div>
-              <div className="value">{fmt(pnl.summary.totalCurrentValueUsd)}</div>
-              <div className="sub">{pnl.summary.totalVaults} vault families</div>
-            </div>
-            <div className={`metric ${pnl.summary.totalPnlUsd >= 0 ? "metric-green" : "metric-red"}`}>
-              <div className="label">Total PnL</div>
-              <div className={`value ${pnlTextClass(pnl.summary.totalPnlUsd)}`}>{fmt(pnl.summary.totalPnlUsd)}</div>
-              <div className="sub">Known-basis realized + unrealized PnL</div>
-            </div>
-            <div className={`metric ${pnl.summary.totalRealizedPnlUsd >= 0 ? "metric-green" : "metric-red"}`}>
-              <div className="label">Realized PnL</div>
-              <div className={`value ${pnlTextClass(pnl.summary.totalRealizedPnlUsd)}`}>
-                {fmt(pnl.summary.totalRealizedPnlUsd)}
-              </div>
-              <div className="sub">Closed lot outcomes</div>
-            </div>
-            <div className={`metric ${pnl.summary.totalUnrealizedPnlUsd >= 0 ? "metric-green" : "metric-red"}`}>
-              <div className="label">Unrealized PnL</div>
-              <div className={`value ${pnlTextClass(pnl.summary.totalUnrealizedPnlUsd)}`}>
-                {fmt(pnl.summary.totalUnrealizedPnlUsd)}
-              </div>
-              <div className="sub">Open known-basis lots marked to market</div>
-            </div>
-            <div className="metric metric-yellow">
-              <div className="label">Windfall PnL</div>
-              <div className="value">{fmt(pnl.summary.totalWindfallPnlUsd)}</div>
-              <div className="sub">Attributed by {unknownMode.replace("_", " ")} mode</div>
-            </div>
-            {pnl.summary.totalUnknownCostBasisValueUsd > 0 && (
-              <div className="metric metric-blue">
-                <div className="label">Unknown Basis Value</div>
-                <div className="value">{fmt(pnl.summary.totalUnknownCostBasisValueUsd)}</div>
-                <div className="sub">
-                  {unknownMode === "strict"
-                    ? "Excluded from PnL until basis is known"
-                    : "Strict mode surfaces this separately"}
-                </div>
+        {pnl && history && !isOverviewLoading && (
+          <>
+            {warnings.length > 0 && (
+              <div className="pnl-alert-grid">
+                {warnings.map((warning) => (
+                  <div key={warning.title} className={`pnl-alert pnl-alert-${warning.tone}`}>
+                    <div className="pnl-alert-title">{warning.title}</div>
+                    <div className="pnl-alert-body">{warning.description}</div>
+                  </div>
+                ))}
               </div>
             )}
-            <div className="metric metric-purple">
-              <div className="label">Basis Coverage</div>
-              <div className="value">{formatRatio(qualityStats.completeValueUsd, pnl.summary.totalCurrentValueUsd)}</div>
-              <div className="sub">{formatUsdDetail(qualityStats.completeValueUsd)} of current value is on complete-basis families</div>
-            </div>
-            <div className={`metric ${pnl.summary.isComplete ? "metric-green" : "metric-yellow"}`}>
-              <div className="label">Accounting State</div>
-              <div className="value">
-                {pnl.summary.completeVaults} / {pnl.summary.totalVaults}
-              </div>
-              <div className="sub">
-                {pnl.summary.isComplete ? "All families are complete" : `${pnl.summary.partialVaults} families remain partial`}
-              </div>
-            </div>
-          </div>
 
-          <div className="row">
-            <div className="card">
-              <h2>Portfolio Value History</h2>
-              <div className="pnl-list" style={{ marginBottom: "1rem" }}>
-                <div className="pnl-list-row">
-                  365d change: {fmt(historyStats.changeUsd)} ({pctFmt(historyStats.changePct)})
-                </div>
-                <div className="pnl-list-row">
-                  Peak value: {fmt(historyStats.peakValue)}. Current vs peak: {pctFmt(historyStats.drawdownPct)}
-                </div>
+            <div className="metric-grid">
+              <div className="metric metric-accent">
+                <div className="label">Current Value</div>
+                <div className="value">{fmt(pnl.summary.totalCurrentValueUsd)}</div>
+                <div className="sub">{pnl.summary.totalVaults} vault families</div>
               </div>
-              <div className="chart-container">
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={history.dataPoints}>
-                    <defs>
-                      <linearGradient id="pnlHistoryFill" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="#2ee6b6" stopOpacity={0.35} />
-                        <stop offset="100%" stopColor="#2ee6b6" stopOpacity={0.02} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid stroke="var(--chart-grid)" vertical={false} />
-                    <XAxis
-                      dataKey="date"
-                      tick={{ fill: "#848e9c", fontSize: 11 }}
-                      tickFormatter={(value: string) => value.slice(5)}
-                      axisLine={false}
-                      tickLine={false}
-                    />
-                    <YAxis
-                      tickFormatter={formatAxis}
-                      tick={{ fill: "#5e6673", fontSize: 11 }}
-                      axisLine={false}
-                      tickLine={false}
-                      width={60}
-                    />
-                    <Tooltip
-                      formatter={(value: number) => fmt(value)}
-                      labelFormatter={(label: string) => label}
-                      {...TOOLTIP_STYLE}
-                    />
-                    <Area
-                      type="monotone"
-                      dataKey="value"
-                      stroke="#2ee6b6"
-                      strokeWidth={2}
-                      fill="url(#pnlHistoryFill)"
-                    />
-                  </AreaChart>
-                </ResponsiveContainer>
+              <div className={`metric ${pnl.summary.totalPnlUsd >= 0 ? "metric-green" : "metric-red"}`}>
+                <div className="label">Total PnL</div>
+                <div className={`value ${pnlTextClass(pnl.summary.totalPnlUsd)}`}>{fmt(pnl.summary.totalPnlUsd)}</div>
+                <div className="sub">Known-basis realized + unrealized PnL</div>
+              </div>
+              <div className={`metric ${pnl.summary.totalRealizedPnlUsd >= 0 ? "metric-green" : "metric-red"}`}>
+                <div className="label">Realized PnL</div>
+                <div className={`value ${pnlTextClass(pnl.summary.totalRealizedPnlUsd)}`}>
+                  {fmt(pnl.summary.totalRealizedPnlUsd)}
+                </div>
+                <div className="sub">Closed lot outcomes</div>
+              </div>
+              <div className={`metric ${pnl.summary.totalUnrealizedPnlUsd >= 0 ? "metric-green" : "metric-red"}`}>
+                <div className="label">Unrealized PnL</div>
+                <div className={`value ${pnlTextClass(pnl.summary.totalUnrealizedPnlUsd)}`}>
+                  {fmt(pnl.summary.totalUnrealizedPnlUsd)}
+                </div>
+                <div className="sub">Open known-basis lots marked to market</div>
+              </div>
+              <div className="metric metric-yellow">
+                <div className="label">Windfall PnL</div>
+                <div className="value">{fmt(pnl.summary.totalWindfallPnlUsd)}</div>
+                <div className="sub">Attributed by {unknownMode.replace("_", " ")} mode</div>
+              </div>
+              {pnl.summary.totalUnknownCostBasisValueUsd > 0 && (
+                <div className="metric metric-blue">
+                  <div className="label">Unknown Basis Value</div>
+                  <div className="value">{fmt(pnl.summary.totalUnknownCostBasisValueUsd)}</div>
+                  <div className="sub">
+                    {unknownMode === "strict"
+                      ? "Excluded from PnL until basis is known"
+                      : "Strict mode surfaces this separately"}
+                  </div>
+                </div>
+              )}
+              <div className="metric metric-purple">
+                <div className="label">Basis Coverage</div>
+                <div className="value">{formatRatio(qualityStats.completeValueUsd, pnl.summary.totalCurrentValueUsd)}</div>
+                <div className="sub">{formatUsdDetail(qualityStats.completeValueUsd)} of current value is on complete-basis families</div>
+              </div>
+              <div className={`metric ${pnl.summary.isComplete ? "metric-green" : "metric-yellow"}`}>
+                <div className="label">Accounting State</div>
+                <div className="value">
+                  {pnl.summary.completeVaults} / {pnl.summary.totalVaults}
+                </div>
+                <div className="sub">
+                  {pnl.summary.isComplete ? "All families are complete" : `${pnl.summary.partialVaults} families remain partial`}
+                </div>
               </div>
             </div>
 
-            <div className="card">
-              <h2>Top Current Positions</h2>
-              <div className="chart-container">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={topVaultChart} layout="vertical" margin={{ top: 0, right: 12, bottom: 0, left: 16 }}>
-                    <CartesianGrid stroke="var(--chart-grid)" horizontal={false} />
-                    <XAxis
-                      type="number"
-                      tickFormatter={formatAxis}
-                      tick={{ fill: "#5e6673", fontSize: 11 }}
-                      axisLine={false}
-                      tickLine={false}
-                    />
-                    <YAxis
-                      dataKey="name"
-                      type="category"
-                      tick={{ fill: "#848e9c", fontSize: 11 }}
-                      axisLine={false}
-                      tickLine={false}
-                      width={88}
-                    />
-                    <Tooltip
-                      formatter={(value: number) => fmt(value)}
-                      cursor={{ fill: "rgba(255, 255, 255, 0.025)" }}
-                      {...TOOLTIP_STYLE}
-                    />
-                    <Bar
-                      dataKey="currentValueUsd"
-                      radius={[0, 6, 6, 0]}
-                      activeBar={{ fillOpacity: 0.9, strokeOpacity: 0 }}
-                    >
-                      {topVaultChart.map((entry, index) => (
-                        <Cell key={`${entry.name}-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
+            <div className="row">
+              <div className="card">
+                <h2>Portfolio Value History</h2>
+                <div className="pnl-list" style={{ marginBottom: "1rem" }}>
+                  <div className="pnl-list-row">
+                    365d change: {fmt(historyStats.changeUsd)} ({pctFmt(historyStats.changePct)})
+                  </div>
+                  <div className="pnl-list-row">
+                    Peak value: {fmt(historyStats.peakValue)}. Current vs peak: {pctFmt(historyStats.drawdownPct)}
+                  </div>
+                </div>
+                <div className="chart-container">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={history.dataPoints}>
+                      <defs>
+                        <linearGradient id="pnlHistoryFill" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#2ee6b6" stopOpacity={0.35} />
+                          <stop offset="100%" stopColor="#2ee6b6" stopOpacity={0.02} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid stroke="var(--chart-grid)" vertical={false} />
+                      <XAxis
+                        dataKey="date"
+                        tick={{ fill: "#848e9c", fontSize: 11 }}
+                        tickFormatter={(value: string) => value.slice(5)}
+                        axisLine={false}
+                        tickLine={false}
+                      />
+                      <YAxis
+                        tickFormatter={formatAxis}
+                        tick={{ fill: "#5e6673", fontSize: 11 }}
+                        axisLine={false}
+                        tickLine={false}
+                        width={60}
+                      />
+                      <Tooltip
+                        formatter={(value: number) => fmt(value)}
+                        labelFormatter={(label: string) => label}
+                        {...TOOLTIP_STYLE}
+                      />
+                      <Area
+                        type="monotone"
+                        dataKey="value"
+                        stroke="#2ee6b6"
+                        strokeWidth={2}
+                        fill="url(#pnlHistoryFill)"
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              <div className="card">
+                <h2>Top Current Positions</h2>
+                <div className="chart-container">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={topVaultChart} layout="vertical" margin={{ top: 0, right: 12, bottom: 0, left: 16 }}>
+                      <CartesianGrid stroke="var(--chart-grid)" horizontal={false} />
+                      <XAxis
+                        type="number"
+                        tickFormatter={formatAxis}
+                        tick={{ fill: "#5e6673", fontSize: 11 }}
+                        axisLine={false}
+                        tickLine={false}
+                      />
+                      <YAxis
+                        dataKey="name"
+                        type="category"
+                        tick={{ fill: "#848e9c", fontSize: 11 }}
+                        axisLine={false}
+                        tickLine={false}
+                        width={88}
+                      />
+                      <Tooltip
+                        formatter={(value: number) => fmt(value)}
+                        cursor={{ fill: "rgba(255, 255, 255, 0.025)" }}
+                        {...TOOLTIP_STYLE}
+                      />
+                      <Bar
+                        dataKey="currentValueUsd"
+                        radius={[0, 6, 6, 0]}
+                        activeBar={{ fillOpacity: 0.9, strokeOpacity: 0 }}
+                      >
+                        {topVaultChart.map((entry, index) => (
+                          <Cell key={`${entry.name}-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            </div>
+
+            <div className="row">
+              <div className="card">
+                <h2>Accounting Quality</h2>
+                <div className="pnl-list">
+                  <div className="pnl-list-row">
+                    Complete families: {pnl.summary.completeVaults} / {pnl.summary.totalVaults}
+                  </div>
+                  <div className="pnl-list-row">
+                    Complete-basis value: {formatUsdDetail(qualityStats.completeValueUsd)} · Partial-basis value:{" "}
+                    {formatUsdDetail(qualityStats.partialValueUsd)}
+                  </div>
+                  <div className="pnl-list-row">
+                    Direct vault vs staked value: {formatUsdDetail(qualityStats.vaultValueUsd)} /{" "}
+                    {formatUsdDetail(qualityStats.stakedValueUsd)}
+                  </div>
+                  <div className="pnl-list-row">
+                    Missing inputs: {qualityStats.missingMetadata} metadata, {qualityStats.missingPrice} price,{" "}
+                    {qualityStats.missingPps} PPS
+                  </div>
+                  <div className="pnl-list-row">
+                    Economic gain: {formatUsdDetail(pnl.summary.totalEconomicGainUsd)} from total PnL + windfall attribution
+                  </div>
+                </div>
+              </div>
+
+              <div className="card">
+                <h2>By Chain</h2>
+                <div className="table-scroll">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Chain</th>
+                        <th className="text-right">Current</th>
+                        <th className="text-right">Total PnL</th>
+                        <th className="text-right">Economic Gain</th>
+                        <th className="text-right">Unknown Basis</th>
+                        <th className="text-right">Vaults</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {chainRows.map((row) => (
+                        <tr key={row.chainId}>
+                          <td>{CHAIN_NAMES[row.chainId] || `Chain ${row.chainId}`}</td>
+                          <td className="text-right">{fmt(row.currentValueUsd)}</td>
+                          <td className={`text-right ${pnlTextClass(row.totalPnlUsd)}`}>{fmt(row.totalPnlUsd)}</td>
+                          <td className={`text-right ${pnlTextClass(row.economicGainUsd)}`}>{fmt(row.economicGainUsd)}</td>
+                          <td className="text-right">{fmt(row.unknownBasisUsd)}</td>
+                          <td className="text-right">{row.vaultCount}</td>
+                        </tr>
                       ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-          </div>
-
-          <div className="row">
-            <div className="card">
-              <h2>Accounting Quality</h2>
-              <div className="pnl-list">
-                <div className="pnl-list-row">
-                  Complete families: {pnl.summary.completeVaults} / {pnl.summary.totalVaults}
-                </div>
-                <div className="pnl-list-row">
-                  Complete-basis value: {formatUsdDetail(qualityStats.completeValueUsd)} · Partial-basis value:{" "}
-                  {formatUsdDetail(qualityStats.partialValueUsd)}
-                </div>
-                <div className="pnl-list-row">
-                  Direct vault vs staked value: {formatUsdDetail(qualityStats.vaultValueUsd)} /{" "}
-                  {formatUsdDetail(qualityStats.stakedValueUsd)}
-                </div>
-                <div className="pnl-list-row">
-                  Missing inputs: {qualityStats.missingMetadata} metadata, {qualityStats.missingPrice} price,{" "}
-                  {qualityStats.missingPps} PPS
-                </div>
-                <div className="pnl-list-row">
-                  Economic gain: {formatUsdDetail(pnl.summary.totalEconomicGainUsd)} from total PnL + windfall attribution
+                    </tbody>
+                  </table>
                 </div>
               </div>
             </div>
 
             <div className="card">
-              <h2>By Chain</h2>
+              <div className="pnl-table-header">
+                <div>
+                  <h2 style={{ marginBottom: "0.4rem" }}>Vault Breakdown</h2>
+                  <div className="pnl-helper">
+                    Compact overview data comes from `/api/holdings/pnl`. Use `Inspect` for excessive lot and journal detail on demand.
+                  </div>
+                </div>
+
+                <div className="filter-bar" style={{ marginBottom: 0 }}>
+                  <input
+                    className="search-input"
+                    placeholder="Filter vaults, symbols, chains..."
+                    value={vaultFilter}
+                    onChange={(event) => setVaultFilter(event.target.value)}
+                  />
+                  <select
+                    className="filter-select"
+                    value={statusFilter}
+                    onChange={(event) => setStatusFilter(event.target.value as "all" | VaultStatus | CostBasisStatus)}
+                  >
+                    <option value="all">All Families</option>
+                    <option value="complete">Complete Basis</option>
+                    <option value="partial">Partial Basis</option>
+                    <option value="ok">OK</option>
+                    <option value="missing_price">Missing Price</option>
+                    <option value="missing_pps">Missing PPS</option>
+                    <option value="missing_metadata">Missing Metadata</option>
+                  </select>
+                  <button
+                    className="btn-export"
+                    onClick={() =>
+                      exportCSV(
+                        "yearn-pnl-vaults.csv",
+                        [
+                          "Chain",
+                          "Symbol",
+                          "Vault",
+                          "Current Value USD",
+                          "Known Basis USD",
+                          "Unknown Basis USD",
+                          "Total PnL USD",
+                          "Realized PnL USD",
+                          "Unrealized PnL USD",
+                          "Windfall PnL USD",
+                          "Cost Basis Status",
+                          "Status",
+                        ],
+                        visibleVaults.map((vault) => [
+                          CHAIN_NAMES[vault.chainId] || vault.chainId,
+                          vault.metadata?.symbol || "",
+                          vault.vaultAddress,
+                          vault.currentValueUsd,
+                          vault.knownCostBasisUsd,
+                          vault.unknownCostBasisValueUsd,
+                          vault.totalPnlUsd,
+                          vault.realizedPnlUsd,
+                          vault.unrealizedPnlUsd,
+                          vault.windfallPnlUsd,
+                          vault.costBasisStatus,
+                          vault.status,
+                        ]),
+                      )
+                    }
+                  >
+                    Export CSV
+                  </button>
+                </div>
+              </div>
+
               <div className="table-scroll">
                 <table>
                   <thead>
                     <tr>
-                      <th>Chain</th>
-                      <th className="text-right">Current</th>
-                      <th className="text-right">Total PnL</th>
-                      <th className="text-right">Economic Gain</th>
-                      <th className="text-right">Unknown Basis</th>
-                      <th className="text-right">Vaults</th>
+                      <th>Inspect</th>
+                      <th {...vaultSort.th("symbol", "Vault")} />
+                      <th {...vaultSort.th("chain", "Chain")} />
+                      <th {...vaultSort.th("currentValueUsd", "Current", "text-right")} />
+                      <th {...vaultSort.th("knownCostBasisUsd", "Known Basis", "text-right")} />
+                      <th {...vaultSort.th("unknownCostBasisValueUsd", "Unknown Basis", "text-right")} />
+                      <th {...vaultSort.th("totalPnlUsd", "Total PnL", "text-right")} />
+                      <th {...vaultSort.th("realizedPnlUsd", "Realized", "text-right")} />
+                      <th {...vaultSort.th("unrealizedPnlUsd", "Unrealized", "text-right")} />
+                      <th {...vaultSort.th("windfallPnlUsd", "Windfall", "text-right")} />
+                      <th {...vaultSort.th("eventIntensity", "Activity", "text-right")} />
+                      <th>Basis</th>
+                      <th>Status</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {chainRows.map((row) => (
-                      <tr key={row.chainId}>
-                        <td>{CHAIN_NAMES[row.chainId] || `Chain ${row.chainId}`}</td>
-                        <td className="text-right">{fmt(row.currentValueUsd)}</td>
-                        <td className={`text-right ${pnlTextClass(row.totalPnlUsd)}`}>{fmt(row.totalPnlUsd)}</td>
-                        <td className={`text-right ${pnlTextClass(row.economicGainUsd)}`}>{fmt(row.economicGainUsd)}</td>
-                        <td className="text-right">{fmt(row.unknownBasisUsd)}</td>
-                        <td className="text-right">{row.vaultCount}</td>
-                      </tr>
-                    ))}
+                    {visibleVaults.map((vault) => {
+                      const href = explorerAddressHref(vault.chainId, vault.vaultAddress);
+                      const explorer = explorerName(vault.chainId);
+                      const isSelected = selectedVaultAddress === vault.vaultAddress.toLowerCase();
+                      return (
+                        <tr
+                          key={`${vault.chainId}:${vault.vaultAddress}`}
+                          className={isSelected ? "pnl-row-selected" : undefined}
+                        >
+                          <td>
+                            <button
+                              type="button"
+                              className="btn-export pnl-inspect-btn"
+                              onClick={() => setSelectedVaultAddress(vault.vaultAddress.toLowerCase())}
+                            >
+                              Inspect
+                            </button>
+                          </td>
+                          <td>
+                            <div className="vault-name">
+                              <span>{vault.metadata?.symbol || "Unknown Vault"}</span>
+                            </div>
+                            {href ? (
+                              <a href={href} target="_blank" rel="noreferrer" className="explorer-link vault-explorer-link">
+                                <span>View on {explorer}</span>
+                                <span className="vault-explorer-link-meta">{shortAddr(vault.vaultAddress)}</span>
+                                <IconLinkOut className="vault-explorer-link-icon" />
+                              </a>
+                            ) : (
+                              <span className="text-dim">{shortAddr(vault.vaultAddress)}</span>
+                            )}
+                          </td>
+                          <td>{CHAIN_NAMES[vault.chainId] || `Chain ${vault.chainId}`}</td>
+                          <td className="text-right">{fmt(vault.currentValueUsd)}</td>
+                          <td className="text-right">{fmt(vault.knownCostBasisUsd)}</td>
+                          <td className="text-right">{fmt(vault.unknownCostBasisValueUsd)}</td>
+                          <td className={`text-right ${pnlTextClass(vault.totalPnlUsd)}`}>{fmt(vault.totalPnlUsd)}</td>
+                          <td className={`text-right ${pnlTextClass(vault.realizedPnlUsd)}`}>{fmt(vault.realizedPnlUsd)}</td>
+                          <td className={`text-right ${pnlTextClass(vault.unrealizedPnlUsd)}`}>{fmt(vault.unrealizedPnlUsd)}</td>
+                          <td className="text-right">{fmt(vault.windfallPnlUsd)}</td>
+                          <td className="text-right">
+                            <div>{eventIntensity(vault)}</div>
+                            <div className="text-dim" style={{ fontSize: "0.7rem" }}>
+                              {vault.eventCounts.unknownCostBasisTransfersIn} unknown in ·{" "}
+                              {vault.eventCounts.withdrawalsWithUnknownCostBasis} unknown wd
+                            </div>
+                          </td>
+                          <td>{costBasisBadge(vault.costBasisStatus)}</td>
+                          <td>{statusBadge(vault.status)}</td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
             </div>
-          </div>
-
-          <div className="card">
-            <div className="pnl-table-header">
-              <div>
-                <h2 style={{ marginBottom: "0.4rem" }}>Vault Breakdown</h2>
-                <div className="pnl-helper">
-                  Compact overview data comes from `/api/holdings/pnl`. Use `Inspect` for excessive lot and journal detail on demand.
-                </div>
-              </div>
-
-              <div className="filter-bar" style={{ marginBottom: 0 }}>
-                <input
-                  className="search-input"
-                  placeholder="Filter vaults, symbols, chains..."
-                  value={vaultFilter}
-                  onChange={(event) => setVaultFilter(event.target.value)}
-                />
-                <select
-                  className="filter-select"
-                  value={statusFilter}
-                  onChange={(event) => setStatusFilter(event.target.value as "all" | VaultStatus | CostBasisStatus)}
-                >
-                  <option value="all">All Families</option>
-                  <option value="complete">Complete Basis</option>
-                  <option value="partial">Partial Basis</option>
-                  <option value="ok">OK</option>
-                  <option value="missing_price">Missing Price</option>
-                  <option value="missing_pps">Missing PPS</option>
-                  <option value="missing_metadata">Missing Metadata</option>
-                </select>
-                <button
-                  className="btn-export"
-                  onClick={() =>
-                    exportCSV(
-                      "yearn-pnl-vaults.csv",
-                      [
-                        "Chain",
-                        "Symbol",
-                        "Vault",
-                        "Current Value USD",
-                        "Known Basis USD",
-                        "Unknown Basis USD",
-                        "Total PnL USD",
-                        "Realized PnL USD",
-                        "Unrealized PnL USD",
-                        "Windfall PnL USD",
-                        "Cost Basis Status",
-                        "Status",
-                      ],
-                      visibleVaults.map((vault) => [
-                        CHAIN_NAMES[vault.chainId] || vault.chainId,
-                        vault.metadata?.symbol || "",
-                        vault.vaultAddress,
-                        vault.currentValueUsd,
-                        vault.knownCostBasisUsd,
-                        vault.unknownCostBasisValueUsd,
-                        vault.totalPnlUsd,
-                        vault.realizedPnlUsd,
-                        vault.unrealizedPnlUsd,
-                        vault.windfallPnlUsd,
-                        vault.costBasisStatus,
-                        vault.status,
-                      ]),
-                    )
-                  }
-                >
-                  Export CSV
-                </button>
-              </div>
-            </div>
-
-            <div className="table-scroll">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Inspect</th>
-                    <th {...vaultSort.th("symbol", "Vault")} />
-                    <th {...vaultSort.th("chain", "Chain")} />
-                    <th {...vaultSort.th("currentValueUsd", "Current", "text-right")} />
-                    <th {...vaultSort.th("knownCostBasisUsd", "Known Basis", "text-right")} />
-                    <th {...vaultSort.th("unknownCostBasisValueUsd", "Unknown Basis", "text-right")} />
-                    <th {...vaultSort.th("totalPnlUsd", "Total PnL", "text-right")} />
-                    <th {...vaultSort.th("realizedPnlUsd", "Realized", "text-right")} />
-                    <th {...vaultSort.th("unrealizedPnlUsd", "Unrealized", "text-right")} />
-                    <th {...vaultSort.th("windfallPnlUsd", "Windfall", "text-right")} />
-                    <th {...vaultSort.th("eventIntensity", "Activity", "text-right")} />
-                    <th>Basis</th>
-                    <th>Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {visibleVaults.map((vault) => {
-                    const href = explorerAddressHref(vault.chainId, vault.vaultAddress);
-                    const explorer = explorerName(vault.chainId);
-                    const isSelected = selectedVaultAddress === vault.vaultAddress.toLowerCase();
-                    return (
-                      <tr
-                        key={`${vault.chainId}:${vault.vaultAddress}`}
-                        className={isSelected ? "pnl-row-selected" : undefined}
-                      >
-                        <td>
-                          <button
-                            type="button"
-                            className="btn-export pnl-inspect-btn"
-                            onClick={() => setSelectedVaultAddress(vault.vaultAddress.toLowerCase())}
-                          >
-                            Inspect
-                          </button>
-                        </td>
-                        <td>
-                          <div className="vault-name">
-                            <span>{vault.metadata?.symbol || "Unknown Vault"}</span>
-                          </div>
-                          {href ? (
-                            <a href={href} target="_blank" rel="noreferrer" className="explorer-link vault-explorer-link">
-                              <span>View on {explorer}</span>
-                              <span className="vault-explorer-link-meta">{shortAddr(vault.vaultAddress)}</span>
-                              <IconLinkOut className="vault-explorer-link-icon" />
-                            </a>
-                          ) : (
-                            <span className="text-dim">{shortAddr(vault.vaultAddress)}</span>
-                          )}
-                        </td>
-                        <td>{CHAIN_NAMES[vault.chainId] || `Chain ${vault.chainId}`}</td>
-                        <td className="text-right">{fmt(vault.currentValueUsd)}</td>
-                        <td className="text-right">{fmt(vault.knownCostBasisUsd)}</td>
-                        <td className="text-right">{fmt(vault.unknownCostBasisValueUsd)}</td>
-                        <td className={`text-right ${pnlTextClass(vault.totalPnlUsd)}`}>{fmt(vault.totalPnlUsd)}</td>
-                        <td className={`text-right ${pnlTextClass(vault.realizedPnlUsd)}`}>{fmt(vault.realizedPnlUsd)}</td>
-                        <td className={`text-right ${pnlTextClass(vault.unrealizedPnlUsd)}`}>{fmt(vault.unrealizedPnlUsd)}</td>
-                        <td className="text-right">{fmt(vault.windfallPnlUsd)}</td>
-                        <td className="text-right">
-                          <div>{eventIntensity(vault)}</div>
-                          <div className="text-dim" style={{ fontSize: "0.7rem" }}>
-                            {vault.eventCounts.unknownCostBasisTransfersIn} unknown in ·{" "}
-                            {vault.eventCounts.withdrawalsWithUnknownCostBasis} unknown wd
-                          </div>
-                        </td>
-                        <td>{costBasisBadge(vault.costBasisStatus)}</td>
-                        <td>{statusBadge(vault.status)}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </>
-      )}
+          </>
+        )}
+      </div>
 
       <DrilldownDrawer
         address={submittedAddress}

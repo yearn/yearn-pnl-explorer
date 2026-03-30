@@ -243,7 +243,6 @@ body {
   min-width: 0;
   overflow-x: hidden;
   margin-left: 220px;
-  max-width: 1480px;
   padding: 0 1.5rem 3rem;
   transition: margin-left 0.2s ease;
 }
@@ -937,6 +936,16 @@ th.text-right {
   grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.9fr);
   gap: 1rem;
   align-items: start;
+}
+
+.pnl-page {
+  width: min(100%, 1440px);
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.pnl-lookup-card {
+  width: 100%;
 }
 
 .pnl-hero-copy {

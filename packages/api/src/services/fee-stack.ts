@@ -3,10 +3,10 @@
  * Builds a tree of vault→vault fee chains where capital flows through
  * multiple fee-taking allocator vaults.
  */
-import { db, vaults, feeConfigs } from "@yearn-tvl/db";
-import { eq, and } from "drizzle-orm";
-import type { FeeStackNode, FeeStackChain, FeeStackSummary } from "@yearn-tvl/shared";
-import { getAuditTree, type AuditVault } from "./audit.js";
+import { db, feeConfigs, vaults } from "@yearn-tvl/db";
+import type { FeeStackNode, FeeStackSummary } from "@yearn-tvl/shared";
+import { and, eq } from "drizzle-orm";
+import { type AuditVault, getAuditTree } from "./audit.js";
 import { latestFeeConfigIds } from "./queries.js";
 
 const MAX_DEPTH = 10;
@@ -27,16 +27,15 @@ async function loadFeeRatesByAddress(): Promise<Map<string, FeeRate>> {
       managementFee: feeConfigs.managementFee,
     })
     .from(feeConfigs)
-    .innerJoin(latestFees, and(
-      eq(feeConfigs.vaultId, latestFees.vaultId),
-      eq(feeConfigs.id, latestFees.maxId),
-    ))
+    .innerJoin(latestFees, and(eq(feeConfigs.vaultId, latestFees.vaultId), eq(feeConfigs.id, latestFees.maxId)))
     .innerJoin(vaults, eq(feeConfigs.vaultId, vaults.id));
 
-  return new Map(rows.map((r) => [
-    `${r.chainId}:${r.address.toLowerCase()}`,
-    { performanceFee: r.performanceFee || 0, managementFee: r.managementFee || 0 },
-  ]));
+  return new Map(
+    rows.map((r) => [
+      `${r.chainId}:${r.address.toLowerCase()}`,
+      { performanceFee: r.performanceFee || 0, managementFee: r.managementFee || 0 },
+    ]),
+  );
 }
 
 function buildVaultLookup(auditVaults: AuditVault[]): Map<string, AuditVault> {
@@ -62,34 +61,31 @@ function buildNode(
   visited: Set<string>,
   depth: number,
 ): FeeStackNode {
-  const children: FeeStackNode[] = [];
+  const children =
+    depth < MAX_DEPTH
+      ? vault.strategies
+          .filter((strat) => strat.detectionMethod && strat.targetVaultAddress && strat.debtUsd > 0)
+          .map((strat) => {
+            const targetKey = `${strat.targetVaultChainId || vault.chainId}:${strat.targetVaultAddress!.toLowerCase()}`;
+            if (visited.has(targetKey)) return null;
 
-  if (depth < MAX_DEPTH) {
-    for (const strat of vault.strategies) {
-      if (!strat.detectionMethod || !strat.targetVaultAddress) continue;
-      if (strat.debtUsd <= 0) continue;
+            const targetVault = vaultLookup.get(targetKey);
+            if (!targetVault) return null;
 
-      const targetKey = `${strat.targetVaultChainId || vault.chainId}:${strat.targetVaultAddress.toLowerCase()}`;
-      if (visited.has(targetKey)) continue;
+            const targetFees = feeByAddress.get(targetKey) || { performanceFee: 0, managementFee: 0 };
 
-      const targetVault = vaultLookup.get(targetKey);
-      if (!targetVault) continue;
+            // Capital flowing through this path = strategy debt × parent's share
+            const childCapital = strat.debtUsd * shareRatio;
+            // Child's share of the target vault, capped at 1.0 (snapshot timing can cause >100%)
+            const childShareRatio = targetVault.tvlUsd > 0 ? Math.min(childCapital / targetVault.tvlUsd, 1.0) : 0;
 
-      const targetFees = feeByAddress.get(targetKey) || { performanceFee: 0, managementFee: 0 };
-
-      // Capital flowing through this path = strategy debt × parent's share
-      const childCapital = strat.debtUsd * shareRatio;
-      // Child's share of the target vault, capped at 1.0 (snapshot timing can cause >100%)
-      const childShareRatio = targetVault.tvlUsd > 0 ? Math.min(childCapital / targetVault.tvlUsd, 1.0) : 0;
-
-      // Clone visited per-branch so sibling paths don't block each other
-      // (only prevents cycles within a single path)
-      const branchVisited = new Set(visited);
-      branchVisited.add(targetKey);
-      const child = buildNode(targetVault, childCapital, childShareRatio, targetFees, vaultLookup, feeByAddress, branchVisited, depth + 1);
-      children.push(child);
-    }
-  }
+            // Clone visited per-branch so sibling paths don't block each other
+            // (only prevents cycles within a single path)
+            const branchVisited = new Set([...visited, targetKey]);
+            return buildNode(targetVault, childCapital, childShareRatio, targetFees, vaultLookup, feeByAddress, branchVisited, depth + 1);
+          })
+          .filter((c): c is FeeStackNode => c !== null)
+      : [];
 
   return {
     vault: { address: vault.address, chainId: vault.chainId, name: vault.name },
@@ -146,9 +142,7 @@ function capitalWeightedFee(root: FeeStackNode): { perfFee: number; mgmtFee: num
           capital: unallocated,
         });
       }
-      for (const child of node.children) {
-        walk(child, newProduct, newMgmt);
-      }
+      node.children.forEach((child) => walk(child, newProduct, newMgmt));
     }
   }
 
@@ -168,49 +162,41 @@ function capitalWeightedFee(root: FeeStackNode): { perfFee: number; mgmtFee: num
 }
 
 export async function getFeeStackAnalysis(): Promise<FeeStackSummary> {
-  const [auditTree, feeByAddress] = await Promise.all([
-    getAuditTree(),
-    loadFeeRatesByAddress(),
-  ]);
+  const [auditTree, feeByAddress] = await Promise.all([getAuditTree(), loadFeeRatesByAddress()]);
   const vaultLookup = buildVaultLookup(auditTree.vaults);
 
-  const chains: FeeStackChain[] = [];
+  const chains = auditTree.vaults
+    .filter((vault) =>
+      vault.strategies.some((s) => {
+        if (!s.detectionMethod || !s.targetVaultAddress || s.debtUsd <= 0) return false;
+        const targetKey = `${s.targetVaultChainId || vault.chainId}:${s.targetVaultAddress.toLowerCase()}`;
+        return vaultLookup.has(targetKey);
+      }),
+    )
+    .map((vault) => {
+      const rootKey = `${vault.chainId}:${vault.address.toLowerCase()}`;
+      const rootFees = feeByAddress.get(rootKey) || { performanceFee: 0, managementFee: 0 };
 
-  for (const vault of auditTree.vaults) {
-    // Only consider vaults that have funded overlapping strategies into other vaults
-    const hasFundedOverlap = vault.strategies.some((s) => {
-      if (!s.detectionMethod || !s.targetVaultAddress || s.debtUsd <= 0) return false;
-      const targetKey = `${s.targetVaultChainId || vault.chainId}:${s.targetVaultAddress.toLowerCase()}`;
-      return vaultLookup.has(targetKey);
-    });
-    if (!hasFundedOverlap) continue;
+      const visited = new Set<string>([rootKey]);
+      const root = buildNode(vault, vault.tvlUsd, 1.0, rootFees, vaultLookup, feeByAddress, visited, 0);
 
-    const rootKey = `${vault.chainId}:${vault.address.toLowerCase()}`;
-    const rootFees = feeByAddress.get(rootKey) || { performanceFee: 0, managementFee: 0 };
+      const maxDepth = treeDepth(root);
+      const { perfFee, mgmtFee } = capitalWeightedFee(root);
 
-    const visited = new Set<string>([rootKey]);
-    const root = buildNode(vault, vault.tvlUsd, 1.0, rootFees, vaultLookup, feeByAddress, visited, 0);
-
-    if (root.children.length === 0) continue;
-
-    const maxDepth = treeDepth(root);
-    const { perfFee, mgmtFee } = capitalWeightedFee(root);
-
-    chains.push({
-      root,
-      maxDepth,
-      effectivePerfFee: perfFee,
-      effectiveMgmtFee: mgmtFee,
-    });
-  }
+      return {
+        root,
+        maxDepth,
+        effectivePerfFee: perfFee,
+        effectiveMgmtFee: mgmtFee,
+      };
+    })
+    .filter((chain) => chain.root.children.length > 0);
 
   chains.sort((a, b) => b.effectivePerfFee - a.effectivePerfFee);
 
   const maxDepth = chains.reduce((m, c) => Math.max(m, c.maxDepth), 0);
   const maxEffectivePerfFee = chains.reduce((m, c) => Math.max(m, c.effectivePerfFee), 0);
-  const avgEffectivePerfFee = chains.length > 0
-    ? Math.round(chains.reduce((s, c) => s + c.effectivePerfFee, 0) / chains.length)
-    : 0;
+  const avgEffectivePerfFee = chains.length > 0 ? Math.round(chains.reduce((s, c) => s + c.effectivePerfFee, 0) / chains.length) : 0;
   const totalStackedCapital = chains.reduce((s, c) => s + c.root.capitalUsd, 0);
 
   return {

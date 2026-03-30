@@ -2,8 +2,8 @@
  * Shared query helpers for API services.
  * Centralizes the "latest snapshot per vault" pattern used across services.
  */
-import { db, vaults, vaultSnapshots, feeConfigs } from "@yearn-tvl/db";
-import { eq, and, sql } from "drizzle-orm";
+import { db, feeConfigs, vaultSnapshots, vaults } from "@yearn-tvl/db";
+import { and, eq, sql } from "drizzle-orm";
 
 /** Subquery returning the latest snapshot ID per vault. Use in custom joins. */
 export const latestSnapshotIds = () =>
@@ -22,10 +22,7 @@ export const getLatestSnapshots = () => {
   return db
     .select({ vault: vaults, snapshot: vaultSnapshots })
     .from(vaultSnapshots)
-    .innerJoin(latestIds, and(
-      eq(vaultSnapshots.vaultId, latestIds.vaultId),
-      eq(vaultSnapshots.id, latestIds.maxId),
-    ))
+    .innerJoin(latestIds, and(eq(vaultSnapshots.vaultId, latestIds.vaultId), eq(vaultSnapshots.id, latestIds.maxId)))
     .innerJoin(vaults, eq(vaultSnapshots.vaultId, vaults.id));
 };
 
@@ -44,5 +41,4 @@ export const latestFeeConfigIds = () =>
 export const isAnalysisEligible = (
   vault: { isRetired?: boolean | null; category: string; vaultType: number | null },
   tvlUsd: number,
-): boolean =>
-  !vault.isRetired && tvlUsd > 10_000 && vault.category !== "curation" && vault.vaultType !== 2;
+): boolean => !vault.isRetired && tvlUsd > 10_000 && vault.category !== "curation" && vault.vaultType !== 2;

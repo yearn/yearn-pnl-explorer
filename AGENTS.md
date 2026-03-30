@@ -1,6 +1,6 @@
-# CLAUDE.md
+# AGENTS.md
 
-Guidance for Claude Code when working with this repository.
+Guidance for Codex when working with this repository.
 
 ## Quick Start
 
@@ -49,9 +49,6 @@ bun run scripts/detect-overlaps.ts         # Find overlaps on-chain
 # Database & types
 bun run db:migrate       # Apply migrations
 bun run typecheck        # tsc --noEmit across all packages
-bun run lint             # Biome check (lint + format)
-bun run lint:fix         # Auto-fix lint/format issues
-bun run format           # Format all files
 ```
 
 ## Populating Data
@@ -60,12 +57,6 @@ Full pipeline for accurate metrics:
 
 ```bash
 bun run seed                            # 1. Core vault data
-bun run seed:extra                      # 2-5. All enrichment steps below in one command
-```
-
-Or run enrichment steps individually:
-
-```bash
 bun run fetch:reports                   # 2. Harvest reports
 bun run scripts/fetch-v2-fees.ts        # 3. On-chain V2 fee rates
 bun run fetch:prices                    # 4. Historical asset prices

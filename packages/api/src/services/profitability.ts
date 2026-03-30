@@ -3,11 +3,11 @@
  * Computes per-vault fee yield, fee capture rate, trends, and strategic quadrant classification.
  * Fee yield = annualized fee revenue / average TVL (like APY for the protocol).
  */
-import { db, vaults, feeConfigs, strategyReports } from "@yearn-tvl/db";
-import { eq, and, sql, gte } from "drizzle-orm";
+import { db, feeConfigs, strategyReports, vaults } from "@yearn-tvl/db";
 import type { VaultCategory } from "@yearn-tvl/shared";
-import { CHAIN_NAMES, toMap, reduceBy } from "@yearn-tvl/shared";
-import { getLatestSnapshots, latestFeeConfigIds, isAnalysisEligible } from "./queries.js";
+import { CHAIN_NAMES, reduceBy, toMap } from "@yearn-tvl/shared";
+import { and, eq, gte, sql } from "drizzle-orm";
+import { getLatestSnapshots, isAnalysisEligible, latestFeeConfigIds } from "./queries.js";
 import { computeOverlap } from "./tvl.js";
 
 type PricingConfidence = "high" | "medium" | "low";
@@ -78,24 +78,6 @@ interface ProfitabilitySummary {
   };
 }
 
-interface TrendResult {
-  vaults: Array<{
-    address: string;
-    chainId: number;
-    name: string | null;
-    category: VaultCategory;
-    tvlUsd: number;
-    currentPeriodFeeYield: number;
-    previousPeriodFeeYield: number;
-    delta: number;
-    trend: Trend;
-    currentPeriodGains: number;
-    previousPeriodGains: number;
-  }>;
-  period: string;
-}
-
-
 /** Determine pricing confidence from the mix of pricing sources in a vault's reports.
  * Reports without an explicit pricingSource came from Kong API (gainUsd at report time),
  * which is equivalent to high-quality pricing — they just predate the tracking column. */
@@ -104,7 +86,7 @@ const getPricingConfidence = (sources: Record<string, number>): PricingConfidenc
   if (total === 0) return "medium"; // No reports at all
 
   // Treat "unknown" (NULL pricingSource) as Kong-sourced — original API values
-  const highQuality = (sources["kong"] || 0) + (sources["defillama_historical"] || 0) + (sources["unknown"] || 0);
+  const highQuality = (sources.kong || 0) + (sources.defillama_historical || 0) + (sources.unknown || 0);
   const ratio = highQuality / total;
   if (ratio >= 0.8) return "high";
   if (ratio >= 0.4) return "medium";
@@ -135,11 +117,11 @@ const annualizeValue = (value: number, minTime: number | null, maxTime: number |
   const span = maxTime - minTime;
   if (span >= 365 * 24 * 3600) return value;
   if (span < minSpan) return value;
-  return value * (365 * 24 * 3600 / span);
+  return value * ((365 * 24 * 3600) / span);
 };
 
 /** Get profitability analysis for all active vaults */
-export const getProfitability = async (): Promise<ProfitabilitySummary> => {
+export const getProfitability = async (chainId?: number): Promise<ProfitabilitySummary> => {
   const now = Math.floor(Date.now() / 1000);
   const oneYearAgo = now - 365 * 24 * 3600;
   const sixMonthsAgo = now - 182.5 * 24 * 3600;
@@ -148,11 +130,11 @@ export const getProfitability = async (): Promise<ProfitabilitySummary> => {
 
   // Compute overlap deductions per target vault
   const overlaps = await computeOverlap();
-  const overlapByTarget = new Map<string, number>();
-  for (const o of overlaps) {
+  const overlapByTarget = overlaps.reduce((acc, o) => {
     const key = `${o.chainId}:${o.targetVault.toLowerCase()}`;
-    overlapByTarget.set(key, (overlapByTarget.get(key) || 0) + o.overlapUsd);
-  }
+    acc.set(key, (acc.get(key) || 0) + o.overlapUsd);
+    return acc;
+  }, new Map<string, number>());
 
   // Build fee rate lookup (latest per vault)
   const latestFees = latestFeeConfigIds();
@@ -163,10 +145,7 @@ export const getProfitability = async (): Promise<ProfitabilitySummary> => {
       managementFee: feeConfigs.managementFee,
     })
     .from(feeConfigs)
-    .innerJoin(latestFees, and(
-      eq(feeConfigs.vaultId, latestFees.vaultId),
-      eq(feeConfigs.id, latestFees.maxId),
-    ));
+    .innerJoin(latestFees, and(eq(feeConfigs.vaultId, latestFees.vaultId), eq(feeConfigs.id, latestFees.maxId)));
   const rateMap = toMap(
     feeRates,
     (r) => r.vaultId,
@@ -187,7 +166,11 @@ export const getProfitability = async (): Promise<ProfitabilitySummary> => {
     .where(gte(strategyReports.blockTime, oneYearAgo))
     .groupBy(strategyReports.vaultId);
 
-  const reportMap = toMap(reportAggs, (r) => r.vaultId, (r) => r);
+  const reportMap = toMap(
+    reportAggs,
+    (r) => r.vaultId,
+    (r) => r,
+  );
 
   // Get pricing source breakdown per vault
   const pricingSources = await db
@@ -217,7 +200,11 @@ export const getProfitability = async (): Promise<ProfitabilitySummary> => {
     .where(gte(strategyReports.blockTime, sixMonthsAgo))
     .groupBy(strategyReports.vaultId);
 
-  const currentHalfMap = toMap(currentHalfAggs, (r) => r.vaultId, (r) => r.totalGain);
+  const currentHalfMap = toMap(
+    currentHalfAggs,
+    (r) => r.vaultId,
+    (r) => r.totalGain,
+  );
 
   const previousHalfAggs = await db
     .select({
@@ -225,13 +212,14 @@ export const getProfitability = async (): Promise<ProfitabilitySummary> => {
       totalGain: sql<number>`COALESCE(SUM(${strategyReports.gainUsd}), 0)`,
     })
     .from(strategyReports)
-    .where(and(
-      gte(strategyReports.blockTime, oneYearAgo),
-      sql`${strategyReports.blockTime} < ${sixMonthsAgo}`,
-    ))
+    .where(and(gte(strategyReports.blockTime, oneYearAgo), sql`${strategyReports.blockTime} < ${sixMonthsAgo}`))
     .groupBy(strategyReports.vaultId);
 
-  const previousHalfMap = toMap(previousHalfAggs, (r) => r.vaultId, (r) => r.totalGain);
+  const previousHalfMap = toMap(
+    previousHalfAggs,
+    (r) => r.vaultId,
+    (r) => r.totalGain,
+  );
 
   // Data quality stats
   const [totalReportsResult] = await db
@@ -241,19 +229,15 @@ export const getProfitability = async (): Promise<ProfitabilitySummary> => {
   const [reportsWithSourceResult] = await db
     .select({ count: sql<number>`COUNT(*)` })
     .from(strategyReports)
-    .where(and(
-      gte(strategyReports.blockTime, oneYearAgo),
-      sql`${strategyReports.pricingSource} IS NOT NULL`,
-    ));
+    .where(and(gte(strategyReports.blockTime, oneYearAgo), sql`${strategyReports.pricingSource} IS NOT NULL`));
 
   // Latest fetch time for data freshness
-  const [latestVault] = await db
-    .select({ lastFetched: sql<string>`MAX(${vaults.updatedAt})` })
-    .from(vaults);
+  const [latestVault] = await db.select({ lastFetched: sql<string>`MAX(${vaults.updatedAt})` }).from(vaults);
 
   // Process each vault
   const vaultResults = snapshots
     .filter(({ vault, snapshot }) => isAnalysisEligible(vault, snapshot.tvlUsd ?? 0))
+    .filter(({ vault }) => !chainId || vault.chainId === chainId)
     .map(({ vault, snapshot }) => {
       const rawTvl = snapshot.tvlUsd ?? 0;
       // Deduct any overlap where this vault is a target (receives deposits from another vault's strategy)
@@ -284,7 +268,7 @@ export const getProfitability = async (): Promise<ProfitabilitySummary> => {
         if (!reports?.maxBlockTime || !reports?.minBlockTime) return totalFeeRevenue;
         const span = reports.maxBlockTime - reports.minBlockTime;
         if (span >= MIN_ANNUALIZE_SPAN && span < 365 * 24 * 3600) {
-          return totalFeeRevenue * (365 * 24 * 3600 / span);
+          return totalFeeRevenue * ((365 * 24 * 3600) / span);
         }
         return totalFeeRevenue;
       })();
@@ -296,9 +280,10 @@ export const getProfitability = async (): Promise<ProfitabilitySummary> => {
       const gainYield = tvlUsd > 0 ? annualizedGains / tvlUsd : 0;
 
       // Harvest frequency
-      const avgHarvestFrequencyDays = reportCount > 1 && reports?.minBlockTime && reports?.maxBlockTime
-        ? ((reports.maxBlockTime - reports.minBlockTime) / (reportCount - 1)) / 86400
-        : 0;
+      const avgHarvestFrequencyDays =
+        reportCount > 1 && reports?.minBlockTime && reports?.maxBlockTime
+          ? (reports.maxBlockTime - reports.minBlockTime) / (reportCount - 1) / 86400
+          : 0;
 
       // Trend: compare current half fee yield vs previous half
       const currentGains = currentHalfMap.get(vault.id) || 0;
@@ -338,7 +323,10 @@ export const getProfitability = async (): Promise<ProfitabilitySummary> => {
 
   // Compute quadrants using median TVL and median fee yield
   const tvls = vaultResults.map((v) => v.tvlUsd).sort((a, b) => a - b);
-  const yields = vaultResults.filter((v) => v.feeYield > 0).map((v) => v.feeYield).sort((a, b) => a - b);
+  const yields = vaultResults
+    .filter((v) => v.feeYield > 0)
+    .map((v) => v.feeYield)
+    .sort((a, b) => a - b);
   const medianTvl = tvls.length > 0 ? tvls[Math.floor(tvls.length / 2)] : 0;
   const medianYield = yields.length > 0 ? yields[Math.floor(yields.length / 2)] : 0;
 
@@ -363,7 +351,14 @@ export const getProfitability = async (): Promise<ProfitabilitySummary> => {
     (acc, v) => ({ chainId: v.chainId, tvl: acc.tvl + v.tvlUsd, fees: acc.fees + v.annualizedFeeRevenue, vaultCount: acc.vaultCount + 1 }),
   );
   const byChain = Object.entries(chainAgg)
-    .map(([chain, d]) => ({ chain, chainId: d.chainId, tvl: d.tvl, fees: d.fees, feeYield: d.tvl > 0 ? d.fees / d.tvl : 0, vaultCount: d.vaultCount }))
+    .map(([chain, d]) => ({
+      chain,
+      chainId: d.chainId,
+      tvl: d.tvl,
+      fees: d.fees,
+      feeYield: d.tvl > 0 ? d.fees / d.tvl : 0,
+      vaultCount: d.vaultCount,
+    }))
     .sort((a, b) => b.fees - a.fees);
 
   // Aggregate by category
@@ -413,83 +408,4 @@ export const getProfitability = async (): Promise<ProfitabilitySummary> => {
       totalReports: totalReportsResult?.count || 0,
     },
   };
-};
-
-/** Get period-over-period trend analysis */
-export const getProfitabilityTrends = async (periodDays: number = 30): Promise<TrendResult> => {
-  const now = Math.floor(Date.now() / 1000);
-  const currentStart = now - periodDays * 24 * 3600;
-  const previousStart = now - 2 * periodDays * 24 * 3600;
-
-  const snapshots = await getLatestSnapshots();
-
-  const latestFees = latestFeeConfigIds();
-  const feeRates = await db
-    .select({ vaultId: feeConfigs.vaultId, performanceFee: feeConfigs.performanceFee })
-    .from(feeConfigs)
-    .innerJoin(latestFees, and(
-      eq(feeConfigs.vaultId, latestFees.vaultId),
-      eq(feeConfigs.id, latestFees.maxId),
-    ));
-  const rateMap = toMap(feeRates, (r) => r.vaultId, (r) => r.performanceFee || 0);
-
-  const currentAggs = await db
-    .select({
-      vaultId: strategyReports.vaultId,
-      totalGain: sql<number>`COALESCE(SUM(${strategyReports.gainUsd}), 0)`,
-    })
-    .from(strategyReports)
-    .where(gte(strategyReports.blockTime, currentStart))
-    .groupBy(strategyReports.vaultId);
-  const currentMap = toMap(currentAggs, (r) => r.vaultId, (r) => r.totalGain);
-
-  const previousAggs = await db
-    .select({
-      vaultId: strategyReports.vaultId,
-      totalGain: sql<number>`COALESCE(SUM(${strategyReports.gainUsd}), 0)`,
-    })
-    .from(strategyReports)
-    .where(and(
-      gte(strategyReports.blockTime, previousStart),
-      sql`${strategyReports.blockTime} < ${currentStart}`,
-    ))
-    .groupBy(strategyReports.vaultId);
-  const previousMap = toMap(previousAggs, (r) => r.vaultId, (r) => r.totalGain);
-
-  const results = snapshots
-    .filter(({ vault, snapshot }) => isAnalysisEligible(vault, snapshot.tvlUsd ?? 0))
-    .map(({ vault, snapshot }) => {
-      const tvlUsd = snapshot.tvlUsd ?? 0;
-      const rate = rateMap.get(vault.id) || 0;
-      const currentGains = currentMap.get(vault.id) || 0;
-      const previousGains = previousMap.get(vault.id) || 0;
-
-      const annualizationFactor = 365 / periodDays;
-      const currentFeeYield = tvlUsd > 0 ? (currentGains * (rate / 10000) * annualizationFactor) / tvlUsd : 0;
-      const previousFeeYield = tvlUsd > 0 ? (previousGains * (rate / 10000) * annualizationFactor) / tvlUsd : 0;
-      const delta = currentFeeYield - previousFeeYield;
-
-      const trend: Trend =
-        currentGains === 0 && previousGains === 0 ? "insufficient_data"
-        : delta > 0.005 ? "improving"
-        : delta < -0.005 ? "declining"
-        : "stable";
-
-      return {
-        address: vault.address,
-        chainId: vault.chainId,
-        name: vault.name,
-        category: vault.category as VaultCategory,
-        tvlUsd,
-        currentPeriodFeeYield: currentFeeYield,
-        previousPeriodFeeYield: previousFeeYield,
-        delta,
-        trend,
-        currentPeriodGains: currentGains,
-        previousPeriodGains: previousGains,
-      };
-    })
-    .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
-
-  return { vaults: results, period: `${periodDays}d` };
 };

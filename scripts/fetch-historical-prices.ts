@@ -10,9 +10,9 @@
  *   - reprice-reports.ts (accurate historical gainUsd)
  *   - fees.ts (time-weighted TVL for management fees)
  */
-import { db, vaults, strategyReports, assetPrices } from "@yearn-tvl/db";
-import { sql, and, eq, isNotNull, gte } from "drizzle-orm";
-import { CHAIN_PREFIXES, weeklyTimestamps, MIN_BLOCK_TIMESTAMP } from "@yearn-tvl/shared";
+import { assetPrices, db, strategyReports, vaults } from "@yearn-tvl/db";
+import { CHAIN_PREFIXES, MIN_BLOCK_TIMESTAMP, weeklyTimestamps } from "@yearn-tvl/shared";
+import { gte, isNotNull, sql } from "drizzle-orm";
 
 const DELAY_MS = 250;
 const BATCH_SIZE = 80; // DL handles ~100 coins per call, stay under
@@ -68,10 +68,7 @@ const getAllExistingTimestamps = async (): Promise<Map<string, Set<number>>> => 
 };
 
 /** Batch-fetch prices from DefiLlama for multiple assets at a single timestamp */
-const fetchPricesFromDL = async (
-  timestamp: number,
-  assets: AssetInfo[],
-): Promise<Map<string, number>> => {
+const fetchPricesFromDL = async (timestamp: number, assets: AssetInfo[]): Promise<Map<string, number>> => {
   const coinKeys = assets
     .map((a) => {
       const prefix = CHAIN_PREFIXES[a.chainId];
@@ -91,12 +88,12 @@ const fetchPricesFromDL = async (
       coins: Record<string, { price: number }>;
     };
 
-    const prices = new Map<string, number>();
-    for (const [key, info] of Object.entries(data.coins)) {
+    const prices = Object.entries(data.coins).reduce((acc, [key, info]) => {
       if (info.price > 0) {
-        prices.set(key.toLowerCase(), info.price);
+        acc.set(key.toLowerCase(), info.price);
       }
-    }
+      return acc;
+    }, new Map<string, number>());
     return prices;
   } catch {
     return new Map();
@@ -111,17 +108,19 @@ export const fetchHistoricalPrices = async () => {
   const earliestReport = await getEarliestReportTime();
   const now = Math.floor(Date.now() / 1000);
   const weeks = weeklyTimestamps(earliestReport, now);
-  console.log(`Date range: ${new Date(earliestReport * 1000).toISOString().slice(0, 10)} → ${new Date(now * 1000).toISOString().slice(0, 10)}`);
+  console.log(
+    `Date range: ${new Date(earliestReport * 1000).toISOString().slice(0, 10)} → ${new Date(now * 1000).toISOString().slice(0, 10)}`,
+  );
   console.log(`${weeks.length} weekly timestamps to check\n`);
 
   // Build lookup for what we already have (single query)
   console.log("Checking existing price data...");
   const existingByAsset = await getAllExistingTimestamps();
   // Ensure all assets have an entry (even if empty)
-  for (const asset of assets) {
+  assets.forEach((asset) => {
     const key = `${asset.chainId}:${asset.address.toLowerCase()}`;
     if (!existingByAsset.has(key)) existingByAsset.set(key, new Set());
-  }
+  });
 
   // Skip assets that DL has never priced (LP tokens, exotic assets)
   // If we have >10 weeks of history and 0 cached prices, DL can't price this asset
@@ -168,64 +167,86 @@ export const fetchHistoricalPrices = async () => {
   }
 
   // Process week by week, batching assets per DL call
-  let stored = 0;
-  let failed = 0;
-  let apiCalls = 0;
+  const { stored, failed, apiCalls } = await weeks.reduce(
+    async (accP, weekTs, wi) => {
+      const acc = await accP;
 
-  for (let wi = 0; wi < weeks.length; wi++) {
-    const weekTs = weeks[wi];
+      // Collect pricable assets that need pricing for this week
+      const needed = pricableAssets.filter((a) => {
+        const key = `${a.chainId}:${a.address.toLowerCase()}`;
+        if (existingByAsset.get(key)!.has(weekTs)) return false;
+        const fetchAfter = assetFetchAfter.get(key);
+        if (fetchAfter && weekTs <= fetchAfter) return false; // already covered or gap
+        return true;
+      });
 
-    // Collect pricable assets that need pricing for this week
-    const needed = pricableAssets.filter((a) => {
-      const key = `${a.chainId}:${a.address.toLowerCase()}`;
-      if (existingByAsset.get(key)!.has(weekTs)) return false;
-      const fetchAfter = assetFetchAfter.get(key);
-      if (fetchAfter && weekTs <= fetchAfter) return false; // already covered or gap
-      return true;
-    });
+      if (needed.length === 0) return acc;
 
-    if (needed.length === 0) continue;
-
-    // Batch into groups of BATCH_SIZE
-    for (let i = 0; i < needed.length; i += BATCH_SIZE) {
-      const batch = needed.slice(i, i + BATCH_SIZE);
-      const prices = await fetchPricesFromDL(weekTs, batch);
-      apiCalls++;
-
-      // Store results
-      const rows: { chainId: number; address: string; symbol: string | null; priceUsd: number; timestamp: number }[] = [];
-      for (const asset of batch) {
-        const prefix = CHAIN_PREFIXES[asset.chainId];
-        const dlKey = `${prefix}:${asset.address}`.toLowerCase();
-        const price = prices.get(dlKey);
-        if (price && price > 0) {
-          rows.push({
-            chainId: asset.chainId,
-            address: asset.address.toLowerCase(),
-            symbol: asset.symbol,
-            priceUsd: price,
-            timestamp: weekTs,
-          });
-        } else {
-          failed++;
-        }
-      }
-
-      if (rows.length > 0) {
-        await db.insert(assetPrices).values(rows);
-        stored += rows.length;
-      }
-
-      await sleep(DELAY_MS);
-    }
-
-    if ((wi + 1) % 10 === 0 || wi === weeks.length - 1) {
-      const date = new Date(weekTs * 1000).toISOString().slice(0, 10);
-      process.stdout.write(
-        `  Week ${wi + 1}/${weeks.length} (${date}): ${stored} stored, ${failed} failed, ${apiCalls} API calls\n`,
+      // Batch into groups of BATCH_SIZE
+      const batches = Array.from({ length: Math.ceil(needed.length / BATCH_SIZE) }, (_, i) =>
+        needed.slice(i * BATCH_SIZE, (i + 1) * BATCH_SIZE),
       );
-    }
-  }
+
+      const batchResult = await batches.reduce(
+        async (batchAccP, batch) => {
+          const batchAcc = await batchAccP;
+          const prices = await fetchPricesFromDL(weekTs, batch);
+
+          // Store results
+          const { rows, batchFailed } = batch.reduce(
+            (rowAcc, asset) => {
+              const prefix = CHAIN_PREFIXES[asset.chainId];
+              const dlKey = `${prefix}:${asset.address}`.toLowerCase();
+              const price = prices.get(dlKey);
+              if (price && price > 0) {
+                return {
+                  rows: [
+                    ...rowAcc.rows,
+                    {
+                      chainId: asset.chainId,
+                      address: asset.address.toLowerCase(),
+                      symbol: asset.symbol,
+                      priceUsd: price,
+                      timestamp: weekTs,
+                    },
+                  ],
+                  batchFailed: rowAcc.batchFailed,
+                };
+              }
+              return { rows: rowAcc.rows, batchFailed: rowAcc.batchFailed + 1 };
+            },
+            {
+              rows: [] as { chainId: number; address: string; symbol: string | null; priceUsd: number; timestamp: number }[],
+              batchFailed: 0,
+            },
+          );
+
+          if (rows.length > 0) {
+            await db.insert(assetPrices).values(rows);
+          }
+
+          await sleep(DELAY_MS);
+
+          return {
+            stored: batchAcc.stored + rows.length,
+            failed: batchAcc.failed + batchFailed,
+            apiCalls: batchAcc.apiCalls + 1,
+          };
+        },
+        Promise.resolve({ stored: acc.stored, failed: acc.failed, apiCalls: acc.apiCalls }),
+      );
+
+      if ((wi + 1) % 10 === 0 || wi === weeks.length - 1) {
+        const date = new Date(weekTs * 1000).toISOString().slice(0, 10);
+        process.stdout.write(
+          `  Week ${wi + 1}/${weeks.length} (${date}): ${batchResult.stored} stored, ${batchResult.failed} failed, ${batchResult.apiCalls} API calls\n`,
+        );
+      }
+
+      return batchResult;
+    },
+    Promise.resolve({ stored: 0, failed: 0, apiCalls: 0 }),
+  );
 
   console.log(`\nDone: ${stored} prices stored, ${failed} unavailable, ${apiCalls} API calls`);
   return { fetched: apiCalls, stored, failed };

@@ -1,6 +1,16 @@
-import { useState, useContext, useMemo, useCallback } from "react";
+import { useContext, useEffect, useMemo, useState } from "react";
 import { DashboardContext } from "../App";
-import { useFetch, fmt, shortAddr, CHAIN_NAMES, CHAIN_SHORT, EXPLORER_URLS, SkeletonCards, SkeletonChart, useDebouncedValue } from "../hooks";
+import {
+  CHAIN_NAMES,
+  CHAIN_SHORT,
+  EXPLORER_URLS,
+  fmt,
+  SkeletonCards,
+  SkeletonChart,
+  shortAddr,
+  useDebouncedValue,
+  useFetch,
+} from "../hooks";
 
 interface AuditStrategy {
   address: string;
@@ -33,29 +43,30 @@ interface AuditTreeResponse {
 
 function categoryBadge(cat: string) {
   const cls =
-    cat === "v2" ? "badge badge-v2"
-    : cat === "v3" ? "badge badge-v3"
-    : cat === "curation" ? "badge badge-curation"
-    : "badge badge-v1";
+    cat === "v2" ? "badge badge-v2" : cat === "v3" ? "badge badge-v3" : cat === "curation" ? "badge badge-curation" : "badge badge-v1";
   return <span className={cls}>{cat}</span>;
 }
 
 function typeBadge(vaultType: number | null) {
-  if (vaultType === 1) return <span className="badge" style={{ background: "var(--green-dim)", color: "var(--green)", fontSize: "0.6rem" }}>allocator</span>;
-  if (vaultType === 2) return <span className="badge" style={{ background: "var(--blue-dim)", color: "var(--blue)", fontSize: "0.6rem" }}>strategy</span>;
+  if (vaultType === 1)
+    return (
+      <span className="badge" style={{ background: "var(--green-dim)", color: "var(--green)", fontSize: "0.6rem" }}>
+        allocator
+      </span>
+    );
+  if (vaultType === 2)
+    return (
+      <span className="badge" style={{ background: "var(--blue-dim)", color: "var(--blue)", fontSize: "0.6rem" }}>
+        strategy
+      </span>
+    );
   return null;
 }
 
-function ExplorerLink({ address, chainId }: { address: string; chainId: number }) {
-  const url = EXPLORER_URLS[chainId];
-  if (url) {
-    return (
-      <a href={`${url}/${address}`} target="_blank" rel="noopener noreferrer" className="explorer-link" style={{ marginLeft: 0 }}>
-        {shortAddr(address)}
-      </a>
-    );
-  }
-  return <span className="text-dim">{shortAddr(address)}</span>;
+/** Compute the "counted TVL" for a vault: raw TVL minus overlap from its strategies */
+function computeCountedTvl(vault: AuditVault): number {
+  const overlapDeduction = vault.strategies.filter((s) => s.detectionMethod != null).reduce((sum, s) => sum + s.debtUsd, 0);
+  return Math.max(0, vault.tvlUsd - overlapDeduction);
 }
 
 /** Recursive strategy tree node */
@@ -64,13 +75,19 @@ function StrategyNode({
   vaultMap,
   depth,
   visited,
+  topLevelAddresses,
+  isLast,
+  parentChainId,
 }: {
   strategy: AuditStrategy;
   vaultMap: Map<string, AuditVault>;
   depth: number;
   visited: Set<string>;
+  topLevelAddresses: Set<string>;
+  isLast: boolean;
+  parentChainId: number;
 }) {
-  const [expanded, setExpanded] = useState(depth < 2);
+  const [expanded, setExpanded] = useState(false);
   const targetVault = strategy.targetVaultAddress
     ? vaultMap.get(`${strategy.targetVaultChainId}:${strategy.targetVaultAddress.toLowerCase()}`)
     : null;
@@ -78,94 +95,123 @@ function StrategyNode({
   const hasTarget = targetVault != null;
   const targetKey = targetVault ? `${targetVault.chainId}:${targetVault.address.toLowerCase()}` : null;
   const isCycle = targetKey ? visited.has(targetKey) : false;
+  const isTopLevelTarget = targetKey ? topLevelAddresses.has(targetKey) : false;
+
+  const nextVisited = targetKey
+    ? (() => {
+        const s = new Set(visited);
+        s.add(targetKey);
+        return s;
+      })()
+    : visited;
 
   return (
     <div className="audit-strategy-node">
-      <div className="audit-row audit-strategy-row" style={{ paddingLeft: `${depth * 1.5 + 1.5}rem` }}>
-        <span className="audit-arrow">&#8594;</span>
-        <span className="audit-strategy-name" title={strategy.name || strategy.address}>
-          {strategy.name || shortAddr(strategy.address)}
+      {/* Strategy row */}
+      <div
+        className={`audit-row audit-strategy-row${strategy.detectionMethod ? " audit-strategy-deducted" : ""}`}
+        style={{
+          paddingLeft: `${depth * 1.5 + 1.5}rem`,
+          background: `rgba(46, 230, 182, ${0.015 + depth * 0.015})`,
+          cursor: hasTarget ? "pointer" : "default",
+        }}
+        onClick={() => hasTarget && setExpanded((e) => !e)}
+      >
+        <span className="text-dim" style={{ fontSize: "0.75rem", flexShrink: 0 }}>
+          {isLast ? "\u2514\u2500" : "\u251C\u2500"}
         </span>
-        <ExplorerLink address={strategy.address} chainId={strategy.targetVaultChainId ?? 0} />
+        <span style={{ color: "var(--accent)", fontSize: "0.65rem", flexShrink: 0, opacity: 0.6 }}>{"\u2192"}</span>
+        {hasTarget && (
+          <span className="audit-toggle" style={{ width: 14 }}>
+            {expanded ? "\u25BC" : "\u25B6"}
+          </span>
+        )}
+        {EXPLORER_URLS[parentChainId] ? (
+          <a
+            href={`${EXPLORER_URLS[parentChainId]}/${strategy.address}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="audit-strategy-name"
+            title={strategy.name || strategy.address}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {strategy.name || shortAddr(strategy.address)}
+          </a>
+        ) : (
+          <span className="audit-strategy-name" title={strategy.name || strategy.address}>
+            {strategy.name || shortAddr(strategy.address)}
+          </span>
+        )}
         {strategy.debtUsd > 0 && (
-          <span className="audit-debt">{fmt(strategy.debtUsd)}</span>
+          <span className={`audit-debt${!strategy.detectionMethod ? " audit-debt-prominent" : ""}`}>{fmt(strategy.debtUsd)}</span>
         )}
         {strategy.detectionMethod && (
-          <span className={`audit-overlap-tag ${strategy.detectionMethod === "auto" ? "auto" : "registry"}`}>
+          <span className={`audit-overlap-tag-prominent ${strategy.detectionMethod === "auto" ? "auto" : "registry"}`}>
             {strategy.detectionMethod === "auto" ? "overlap (auto)" : strategy.label || "overlap (registry)"}
           </span>
         )}
-        {hasTarget && !isCycle && (
-          <button
-            className="audit-expand-btn"
-            onClick={() => setExpanded((e) => !e)}
-            title={expanded ? "Collapse" : "Expand"}
+        {isCycle && <span className="audit-cycle-tag">cycle</span>}
+      </div>
+
+      {/* Target vault + its strategies (collapsed by default) */}
+      {expanded && hasTarget && targetVault && (
+        <>
+          <div
+            className={`audit-row audit-target-vault-row${strategy.detectionMethod ? " audit-strategy-deducted" : ""}`}
+            style={{
+              paddingLeft: `${(depth + 1) * 1.5 + 1.5}rem`,
+              background: `rgba(46, 230, 182, ${0.015 + (depth + 1) * 0.015})`,
+            }}
           >
-            {expanded ? "\u25BC" : "\u25B6"}
-          </button>
-        )}
-        {isCycle && (
-          <span className="audit-cycle-tag">cycle</span>
-        )}
-      </div>
-
-      {/* If this strategy deposits into another vault, render that vault's subtree */}
-      {hasTarget && expanded && !isCycle && targetVault && (
-        <VaultSubtree
-          vault={targetVault}
-          vaultMap={vaultMap}
-          depth={depth + 1}
-          visited={visited}
-        />
+            <span className="text-dim" style={{ fontSize: "0.75rem", flexShrink: 0 }}>
+              {"\u2514\u2500"}
+            </span>
+            <span style={{ color: "var(--accent)", fontSize: "0.65rem", flexShrink: 0, opacity: 0.6 }}>{"\u2192"}</span>
+            <span className="audit-vault-indicator">VAULT</span>
+            {EXPLORER_URLS[targetVault.chainId] ? (
+              <a
+                href={`${EXPLORER_URLS[targetVault.chainId]}/${targetVault.address}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="audit-vault-name"
+                title={targetVault.name || targetVault.address}
+                onClick={(e) => e.stopPropagation()}
+              >
+                {targetVault.name || shortAddr(targetVault.address)}
+              </a>
+            ) : (
+              <span className="audit-vault-name" title={targetVault.name || targetVault.address}>
+                {targetVault.name || shortAddr(targetVault.address)}
+              </span>
+            )}
+            {categoryBadge(targetVault.category)}
+            {typeBadge(targetVault.vaultType)}
+            <span className="audit-tvl">{fmt(targetVault.tvlUsd)}</span>
+            {targetVault.isRetired && (
+              <span
+                className="badge"
+                style={{ background: "var(--red-dim)", color: "var(--red)", fontSize: "0.6rem", padding: "0.05rem 0.35rem" }}
+              >
+                retired
+              </span>
+            )}
+          </div>
+          {!isCycle &&
+            !isTopLevelTarget &&
+            targetVault.strategies.map((strat, i) => (
+              <StrategyNode
+                key={strat.address}
+                strategy={strat}
+                vaultMap={vaultMap}
+                depth={depth + 2}
+                visited={nextVisited}
+                topLevelAddresses={topLevelAddresses}
+                isLast={i === targetVault.strategies.length - 1}
+                parentChainId={targetVault.chainId}
+              />
+            ))}
+        </>
       )}
-    </div>
-  );
-}
-
-/** Render a vault's strategies as a subtree (used recursively) */
-function VaultSubtree({
-  vault,
-  vaultMap,
-  depth,
-  visited,
-}: {
-  vault: AuditVault;
-  vaultMap: Map<string, AuditVault>;
-  depth: number;
-  visited: Set<string>;
-}) {
-  const vaultKey = `${vault.chainId}:${vault.address.toLowerCase()}`;
-  const nextVisited = new Set(visited);
-  nextVisited.add(vaultKey);
-
-  return (
-    <div className="audit-vault-subtree">
-      <div className="audit-row audit-target-vault-row" style={{ paddingLeft: `${depth * 1.5 + 1.5}rem` }}>
-        <span className="audit-arrow">&#8594;</span>
-        <span className="audit-vault-indicator">VAULT</span>
-        <span className="audit-vault-name" title={vault.name || vault.address}>
-          {vault.name || shortAddr(vault.address)}
-        </span>
-        <ExplorerLink address={vault.address} chainId={vault.chainId} />
-        {categoryBadge(vault.category)}
-        {typeBadge(vault.vaultType)}
-        <span className="audit-tvl">{fmt(vault.tvlUsd)}</span>
-        {vault.isRetired && (
-          <span className="badge" style={{ background: "var(--red-dim)", color: "var(--red)", fontSize: "0.6rem", padding: "0.05rem 0.35rem" }}>
-            retired
-          </span>
-        )}
-      </div>
-
-      {vault.strategies.map((strat) => (
-        <StrategyNode
-          key={strat.address}
-          strategy={strat}
-          vaultMap={vaultMap}
-          depth={depth + 1}
-          visited={nextVisited}
-        />
-      ))}
     </div>
   );
 }
@@ -174,9 +220,11 @@ function VaultSubtree({
 function VaultNode({
   vault,
   vaultMap,
+  topLevelAddresses,
 }: {
   vault: AuditVault;
   vaultMap: Map<string, AuditVault>;
+  topLevelAddresses: Set<string>;
 }) {
   const [expanded, setExpanded] = useState(false);
   const hasStrategies = vault.strategies.length > 0;
@@ -186,6 +234,9 @@ function VaultNode({
   const visited = new Set<string>();
   visited.add(`${vault.chainId}:${vault.address.toLowerCase()}`);
 
+  const countedTvl = computeCountedTvl(vault);
+  const hasDeduction = countedTvl < vault.tvlUsd - 1; // $1 tolerance for rounding
+
   return (
     <div className={`audit-vault-node${hasOverlap ? " has-overlap" : ""}`}>
       <div
@@ -193,16 +244,25 @@ function VaultNode({
         onClick={() => hasStrategies && setExpanded((e) => !e)}
         style={{ cursor: hasStrategies ? "pointer" : "default" }}
       >
-        {hasStrategies && (
-          <span className="audit-toggle">{expanded ? "\u25BC" : "\u25B6"}</span>
-        )}
+        {hasStrategies && <span className="audit-toggle">{expanded ? "\u25BC" : "\u25B6"}</span>}
         {!hasStrategies && <span className="audit-toggle-placeholder" />}
 
-        <span className="audit-vault-name" title={vault.name || vault.address}>
-          {vault.name || shortAddr(vault.address)}
-        </span>
-
-        <ExplorerLink address={vault.address} chainId={vault.chainId} />
+        {EXPLORER_URLS[vault.chainId] ? (
+          <a
+            href={`${EXPLORER_URLS[vault.chainId]}/${vault.address}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="audit-vault-name"
+            title={vault.name || vault.address}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {vault.name || shortAddr(vault.address)}
+          </a>
+        ) : (
+          <span className="audit-vault-name" title={vault.name || vault.address}>
+            {vault.name || shortAddr(vault.address)}
+          </span>
+        )}
 
         <span className="text-dim" style={{ fontSize: "0.7rem" }}>
           {CHAIN_SHORT[vault.chainId] || CHAIN_NAMES[vault.chainId] || vault.chainId}
@@ -212,41 +272,54 @@ function VaultNode({
         {typeBadge(vault.vaultType)}
 
         {vault.isRetired && (
-          <span className="badge" style={{ background: "var(--red-dim)", color: "var(--red)", fontSize: "0.6rem", padding: "0.05rem 0.35rem" }}>
+          <span
+            className="badge"
+            style={{ background: "var(--red-dim)", color: "var(--red)", fontSize: "0.6rem", padding: "0.05rem 0.35rem" }}
+          >
             retired
           </span>
         )}
 
-        <span className="audit-tvl" style={{ marginLeft: "auto" }}>{fmt(vault.tvlUsd)}</span>
-
-        {hasStrategies && (
-          <span className="text-dim" style={{ fontSize: "0.68rem", minWidth: "3rem" }}>
-            {vault.strategies.length} strat{vault.strategies.length > 1 ? "s" : ""}
+        {/* ── Right-aligned columns: strats | TVL | overlaps | counted ── */}
+        <span className="audit-cols">
+          <span className="audit-col-strats">
+            {hasStrategies ? `${vault.strategies.length} strat${vault.strategies.length > 1 ? "s" : ""}` : "\u2014"}
           </span>
-        )}
-
-        {overlapCount > 0 && (
-          <span className="audit-overlap-count">
-            {overlapCount} overlap{overlapCount > 1 ? "s" : ""}
+          <span className="audit-col-tvl">{fmt(vault.tvlUsd)}</span>
+          <span className="audit-col-overlaps">
+            {overlapCount > 0 ? (
+              <span className="audit-overlap-count">
+                {overlapCount} overlap{overlapCount > 1 ? "s" : ""}
+              </span>
+            ) : (
+              <span className="audit-col-empty">{"\u2014"}</span>
+            )}
           </span>
-        )}
+          <span className="audit-col-counted" title="TVL after deducting overlap from this vault's strategies">
+            {hasDeduction ? fmt(countedTvl) : fmt(vault.tvlUsd)}
+          </span>
+        </span>
       </div>
 
-      {expanded && vault.strategies.map((strat) => (
-        <StrategyNode
-          key={strat.address}
-          strategy={strat}
-          vaultMap={vaultMap}
-          depth={1}
-          visited={visited}
-        />
-      ))}
+      {expanded &&
+        vault.strategies.map((strat, i) => (
+          <StrategyNode
+            key={strat.address}
+            strategy={strat}
+            vaultMap={vaultMap}
+            depth={1}
+            visited={visited}
+            topLevelAddresses={topLevelAddresses}
+            isLast={i === vault.strategies.length - 1}
+            parentChainId={vault.chainId}
+          />
+        ))}
     </div>
   );
 }
 
 export function AuditPanel() {
-  const { chainFilter } = useContext(DashboardContext);
+  const { chainFilter, setLastFetchedAt } = useContext(DashboardContext);
   const [search, setSearch] = useState("");
   const [showOverlapOnly, setShowOverlapOnly] = useState(false);
   const [includeRetired, setIncludeRetired] = useState(false);
@@ -254,7 +327,11 @@ export function AuditPanel() {
   const debouncedSearch = useDebouncedValue(search);
 
   const url = `/api/audit/tree${chainFilter !== "all" ? `?chainId=${chainFilter}` : ""}`;
-  const { data, loading } = useFetch<AuditTreeResponse>(url);
+  const { data, loading, fetchedAt } = useFetch<AuditTreeResponse>(url);
+
+  useEffect(() => {
+    if (fetchedAt) setLastFetchedAt(fetchedAt);
+  }, [fetchedAt, setLastFetchedAt]);
 
   // Build vault lookup map for recursive tree
   const vaultMap = useMemo(() => {
@@ -264,28 +341,47 @@ export function AuditPanel() {
 
   const filteredVaults = useMemo(() => {
     if (!data) return [];
-    let result = data.vaults;
-    if (!includeRetired) result = result.filter((v) => !v.isRetired);
-    if (showOverlapOnly) result = result.filter((v) => v.strategies.some((s) => s.targetVaultAddress != null));
-    if (typeFilter === "curation") result = result.filter((v) => v.category === "curation");
-    else if (typeFilter === "allocator") result = result.filter((v) => v.vaultType === 1);
-    else if (typeFilter === "strategy") result = result.filter((v) => v.vaultType === 2);
-    if (debouncedSearch) {
-      const q = debouncedSearch.toLowerCase();
-      result = result.filter((v) =>
-        (v.name || "").toLowerCase().includes(q) ||
-        v.address.toLowerCase().includes(q),
-      );
-    }
-    return result;
+    const typeFilterFn = (v: AuditVault) =>
+      typeFilter === "curation"
+        ? v.category === "curation"
+        : typeFilter === "allocator"
+          ? v.vaultType === 1
+          : typeFilter === "strategy"
+            ? v.vaultType === 2
+            : true;
+
+    const searchFilterFn = debouncedSearch
+      ? (
+          (q) => (v: AuditVault) =>
+            (v.name || "").toLowerCase().includes(q) || v.address.toLowerCase().includes(q)
+        )(debouncedSearch.toLowerCase())
+      : () => true;
+
+    return data.vaults
+      .filter((v) => includeRetired || !v.isRetired)
+      .filter((v) => !showOverlapOnly || v.strategies.some((s) => s.targetVaultAddress != null))
+      .filter(typeFilterFn)
+      .filter(searchFilterFn);
   }, [data, debouncedSearch, showOverlapOnly, includeRetired, typeFilter]);
 
+  // Set of top-level vault addresses for depth limiting
+  const topLevelAddresses = useMemo(() => {
+    if (!data) return new Set<string>();
+    return new Set(data.vaults.map((v) => `${v.chainId}:${v.address.toLowerCase()}`));
+  }, [data]);
+
   const totalOverlapStrategies = useMemo(
-    () => data ? data.vaults.reduce((sum, v) => sum + v.strategies.filter((s) => s.targetVaultAddress != null).length, 0) : 0,
+    () => (data ? data.vaults.reduce((sum, v) => sum + v.strategies.filter((s) => s.targetVaultAddress != null).length, 0) : 0),
     [data],
   );
 
-  if (loading) return <><SkeletonCards count={3} /><SkeletonChart /></>;
+  if (loading)
+    return (
+      <>
+        <SkeletonCards count={3} />
+        <SkeletonChart />
+      </>
+    );
   if (!data) return null;
 
   return (
@@ -299,17 +395,23 @@ export function AuditPanel() {
         </div>
         <div className="metric metric-red">
           <div className="label">Strategy Overlap</div>
-          <div className="value" style={{ color: "var(--red)" }}>-{fmt(data.overlapTvl)}</div>
+          <div className="value" style={{ color: "var(--red)" }}>
+            -{fmt(data.overlapTvl)}
+          </div>
           <div className="sub">{totalOverlapStrategies} vault-to-vault</div>
         </div>
         <div className="metric metric-red">
           <div className="label">Cross-Chain Overlap</div>
-          <div className="value" style={{ color: "var(--red)" }}>-{fmt(data.crossChainOverlap)}</div>
+          <div className="value" style={{ color: "var(--red)" }}>
+            -{fmt(data.crossChainOverlap)}
+          </div>
           <div className="sub">retired, capital migrated</div>
         </div>
         <div className="metric metric-green">
           <div className="label">Net TVL</div>
-          <div className="value" style={{ color: "var(--green)" }}>{fmt(data.summedTvl - data.overlapTvl - data.crossChainOverlap)}</div>
+          <div className="value" style={{ color: "var(--green)" }}>
+            {fmt(data.summedTvl - data.overlapTvl - data.crossChainOverlap)}
+          </div>
           <div className="sub">after all deductions</div>
         </div>
       </div>
@@ -317,20 +419,12 @@ export function AuditPanel() {
       {/* ── Filter Bar ── */}
       <div className="filter-bar">
         <label className={`filter-pill${showOverlapOnly ? " active" : ""}`} style={{ cursor: "pointer" }}>
-          <input
-            type="checkbox"
-            checked={showOverlapOnly}
-            onChange={(e) => setShowOverlapOnly(e.target.checked)}
-          />
+          <input type="checkbox" checked={showOverlapOnly} onChange={(e) => setShowOverlapOnly(e.target.checked)} />
           Overlap only
         </label>
 
         <label className={`filter-pill${includeRetired ? " active" : ""}`} style={{ cursor: "pointer" }}>
-          <input
-            type="checkbox"
-            checked={includeRetired}
-            onChange={(e) => setIncludeRetired(e.target.checked)}
-          />
+          <input type="checkbox" checked={includeRetired} onChange={(e) => setIncludeRetired(e.target.checked)} />
           Include retired
         </label>
 
@@ -341,12 +435,7 @@ export function AuditPanel() {
           <option value="strategy">Strategy</option>
         </select>
 
-        <input
-          className="search-input"
-          placeholder="Search vaults..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
+        <input className="search-input" placeholder="Search vaults..." value={search} onChange={(e) => setSearch(e.target.value)} />
 
         <span className="text-dim" style={{ fontSize: "0.78rem", marginLeft: "auto" }}>
           {filteredVaults.length} vaults
@@ -357,17 +446,16 @@ export function AuditPanel() {
       <div className="card audit-tree">
         <div className="audit-tree-header">
           <span style={{ fontWeight: 600 }}>Vault</span>
-          <span className="text-dim" style={{ marginLeft: "auto", fontSize: "0.75rem" }}>
-            Click a vault to expand its strategy tree. Overlaps chain recursively.
+          <span className="audit-cols audit-cols-header">
+            <span className="audit-col-strats">Strats</span>
+            <span className="audit-col-tvl">Vault TVL</span>
+            <span className="audit-col-overlaps">Overlaps</span>
+            <span className="audit-col-counted">Counted</span>
           </span>
         </div>
 
         {filteredVaults.map((vault) => (
-          <VaultNode
-            key={`${vault.chainId}:${vault.address}`}
-            vault={vault}
-            vaultMap={vaultMap}
-          />
+          <VaultNode key={`${vault.chainId}:${vault.address}`} vault={vault} vaultMap={vaultMap} topLevelAddresses={topLevelAddresses} />
         ))}
 
         {filteredVaults.length === 0 && (

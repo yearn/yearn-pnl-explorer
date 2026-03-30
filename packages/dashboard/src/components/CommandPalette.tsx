@@ -1,4 +1,12 @@
-import { useState, useEffect, useRef, useCallback, type CSSProperties } from "react";
+import {
+  type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 interface CommandPaletteProps {
   onNavigate: (tab: string) => void;
@@ -9,25 +17,13 @@ interface CommandPaletteProps {
 interface PaletteItem {
   id: string;
   label: string;
-  type: "navigation" | "action";
   icon: string;
   hint: string;
 }
 
 const NAV_ITEMS: PaletteItem[] = [
-  { id: "Overview", label: "Overview", type: "navigation", icon: "\u{1F4CA}", hint: "TVL summary" },
-  { id: "Audit", label: "Audit", type: "navigation", icon: "\u{1F504}", hint: "vs DefiLlama" },
-  { id: "Fees", label: "Fees", type: "navigation", icon: "\u{1F4B0}", hint: "Fee revenue" },
-  { id: "Vaults", label: "Vaults", type: "navigation", icon: "\u{1F3E6}", hint: "Vault tree & overlaps" },
+  { id: "PnL", label: "PnL Explorer", icon: "\u{1F4C8}", hint: "Address-level holdings and PnL" },
 ];
-
-const ACTION_ITEMS: PaletteItem[] = [
-  { id: "export", label: "Export current view", type: "action", icon: "\u{1F4E4}", hint: "Download CSV" },
-];
-
-const ALL_ITEMS = [...NAV_ITEMS, ...ACTION_ITEMS];
-
-/* ---- Styles ---- */
 
 const styles: Record<string, CSSProperties> = {
   overlay: {
@@ -86,14 +82,14 @@ const styles: Record<string, CSSProperties> = {
     fontFamily: "inherit",
   },
   list: {
-    maxHeight: 340,
-    overflowY: "auto" as const,
+    maxHeight: 320,
+    overflowY: "auto",
     padding: "6px 8px",
   },
   sectionLabel: {
     fontSize: "0.65rem",
     fontWeight: 600,
-    textTransform: "uppercase" as const,
+    textTransform: "uppercase",
     letterSpacing: "0.06em",
     color: "var(--text-3)",
     padding: "8px 10px 4px",
@@ -144,7 +140,7 @@ const styles: Record<string, CSSProperties> = {
     marginLeft: 6,
   },
   empty: {
-    textAlign: "center" as const,
+    textAlign: "center",
     padding: "24px 16px",
     color: "var(--text-3)",
     fontSize: "0.82rem",
@@ -174,13 +170,10 @@ const styles: Record<string, CSSProperties> = {
   },
 };
 
-/* ---- Keyframe injection ---- */
-
 const STYLE_ID = "cmdk-palette-keyframes";
 
 function ensureKeyframes() {
-  if (typeof document === "undefined") return;
-  if (document.getElementById(STYLE_ID)) return;
+  if (typeof document === "undefined" || document.getElementById(STYLE_ID)) return;
   const sheet = document.createElement("style");
   sheet.id = STYLE_ID;
   sheet.textContent = `
@@ -196,8 +189,6 @@ function ensureKeyframes() {
   document.head.appendChild(sheet);
 }
 
-/* ---- SVG Icons ---- */
-
 function SearchSvg() {
   return (
     <svg
@@ -208,6 +199,7 @@ function SearchSvg() {
       strokeWidth="1.5"
       strokeLinecap="round"
       strokeLinejoin="round"
+      aria-hidden="true"
     >
       <circle cx="6.5" cy="6.5" r="5" />
       <line x1="10" y1="10" x2="14.5" y2="14.5" />
@@ -215,86 +207,80 @@ function SearchSvg() {
   );
 }
 
-/* ---- Component ---- */
-
 export function CommandPalette({ onNavigate, isOpen, onClose }: CommandPaletteProps) {
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
-  // Filtered items
-  const filtered = ALL_ITEMS.filter((item) => {
-    if (!query.trim()) return true;
-    const q = query.toLowerCase();
-    return (
-      item.label.toLowerCase().includes(q) ||
-      item.hint.toLowerCase().includes(q)
+  const results = useMemo(() => {
+    const normalizedQuery = query.toLowerCase().trim();
+    if (!normalizedQuery) return NAV_ITEMS;
+    return NAV_ITEMS.filter(
+      (item) =>
+        item.label.toLowerCase().includes(normalizedQuery) ||
+        item.hint.toLowerCase().includes(normalizedQuery),
     );
-  });
+  }, [query]);
 
-  // Split into sections for display
-  const navResults = filtered.filter((i) => i.type === "navigation");
-  const actionResults = filtered.filter((i) => i.type === "action");
-  const flatResults = [...navResults, ...actionResults];
-
-  // Reset state when opening/closing
   useEffect(() => {
-    if (isOpen) {
-      ensureKeyframes();
-      setQuery("");
-      setActiveIndex(0);
-      // Small delay so the DOM is ready before focusing
-      requestAnimationFrame(() => {
-        inputRef.current?.focus();
-      });
-    }
+    if (!isOpen) return;
+    ensureKeyframes();
+    setQuery("");
+    setActiveIndex(0);
+    requestAnimationFrame(() => {
+      inputRef.current?.focus();
+    });
   }, [isOpen]);
 
-  // Clamp active index when results change
   useEffect(() => {
-    setActiveIndex((prev) => Math.min(prev, Math.max(0, flatResults.length - 1)));
-  }, [flatResults.length]);
+    setActiveIndex((previousIndex) => Math.min(previousIndex, Math.max(0, results.length - 1)));
+  }, [results.length]);
 
-  // Scroll active item into view
   useEffect(() => {
     if (!listRef.current) return;
     const items = listRef.current.querySelectorAll("[data-cmdk-item]");
-    const activeEl = items[activeIndex] as HTMLElement | undefined;
-    activeEl?.scrollIntoView({ block: "nearest" });
+    const activeElement = items[activeIndex] as HTMLElement | undefined;
+    activeElement?.scrollIntoView({ block: "nearest" });
   }, [activeIndex]);
 
   const selectItem = useCallback(
     (item: PaletteItem) => {
-      if (item.type === "navigation") {
-        onNavigate(item.id);
-      }
-      // For "export" action, we just close -- the parent can handle it
+      onNavigate(item.id);
       onClose();
     },
-    [onNavigate, onClose],
+    [onClose, onNavigate],
   );
 
   const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      if (e.key === "ArrowDown") {
-        e.preventDefault();
-        setActiveIndex((prev) => (prev + 1) % Math.max(1, flatResults.length));
-      } else if (e.key === "ArrowUp") {
-        e.preventDefault();
-        setActiveIndex((prev) =>
-          prev <= 0 ? Math.max(0, flatResults.length - 1) : prev - 1,
+    (event: ReactKeyboardEvent) => {
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        setActiveIndex((previousIndex) => (previousIndex + 1) % Math.max(1, results.length));
+        return;
+      }
+
+      if (event.key === "ArrowUp") {
+        event.preventDefault();
+        setActiveIndex((previousIndex) =>
+          previousIndex <= 0 ? Math.max(0, results.length - 1) : previousIndex - 1,
         );
-      } else if (e.key === "Enter") {
-        e.preventDefault();
-        const item = flatResults[activeIndex];
+        return;
+      }
+
+      if (event.key === "Enter") {
+        event.preventDefault();
+        const item = results[activeIndex];
         if (item) selectItem(item);
-      } else if (e.key === "Escape") {
-        e.preventDefault();
+        return;
+      }
+
+      if (event.key === "Escape") {
+        event.preventDefault();
         onClose();
       }
     },
-    [flatResults, activeIndex, selectItem, onClose],
+    [activeIndex, onClose, results, selectItem],
   );
 
   if (!isOpen) return null;
@@ -302,92 +288,62 @@ export function CommandPalette({ onNavigate, isOpen, onClose }: CommandPalettePr
   return (
     <div
       style={styles.overlay}
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onClose();
       }}
       onKeyDown={handleKeyDown}
     >
       <div style={styles.modal} role="dialog" aria-label="Command palette">
-        {/* Search input */}
         <div style={styles.inputWrapper}>
           <SearchSvg />
           <input
             ref={inputRef}
             style={styles.input}
             type="text"
-            placeholder="Search tabs, actions..."
+            placeholder="Search pages..."
             value={query}
-            onChange={(e) => {
-              setQuery(e.target.value);
+            onChange={(event) => {
+              setQuery(event.target.value);
               setActiveIndex(0);
             }}
             aria-label="Search command palette"
+            role="combobox"
+            aria-expanded="true"
+            aria-controls="cmdk-list"
+            aria-activedescendant={results[activeIndex]?.id}
           />
           <kbd style={styles.kbdHint}>ESC</kbd>
         </div>
 
-        {/* Results */}
-        <div style={styles.list} ref={listRef}>
-          {flatResults.length === 0 ? (
+        <div style={styles.list} ref={listRef} id="cmdk-list" role="listbox">
+          {results.length === 0 ? (
             <div style={styles.empty}>No results for "{query}"</div>
           ) : (
             <>
-              {navResults.length > 0 && (
-                <>
-                  <div style={styles.sectionLabel}>Navigate</div>
-                  {navResults.map((item) => {
-                    const idx = flatResults.indexOf(item);
-                    return (
-                      <div
-                        key={item.id}
-                        data-cmdk-item
-                        style={{
-                          ...styles.item,
-                          ...(idx === activeIndex ? styles.itemActive : {}),
-                        }}
-                        onMouseEnter={() => setActiveIndex(idx)}
-                        onClick={() => selectItem(item)}
-                      >
-                        <div style={styles.itemIcon}>{item.icon}</div>
-                        <span style={styles.itemLabel}>{item.label}</span>
-                        <span style={styles.itemHint}>{item.hint}</span>
-                        <kbd style={styles.itemKbd}>Enter</kbd>
-                      </div>
-                    );
-                  })}
-                </>
-              )}
-
-              {actionResults.length > 0 && (
-                <>
-                  <div style={styles.sectionLabel}>Actions</div>
-                  {actionResults.map((item) => {
-                    const idx = flatResults.indexOf(item);
-                    return (
-                      <div
-                        key={item.id}
-                        data-cmdk-item
-                        style={{
-                          ...styles.item,
-                          ...(idx === activeIndex ? styles.itemActive : {}),
-                        }}
-                        onMouseEnter={() => setActiveIndex(idx)}
-                        onClick={() => selectItem(item)}
-                      >
-                        <div style={styles.itemIcon}>{item.icon}</div>
-                        <span style={styles.itemLabel}>{item.label}</span>
-                        <span style={styles.itemHint}>{item.hint}</span>
-                        <kbd style={styles.itemKbd}>Enter</kbd>
-                      </div>
-                    );
-                  })}
-                </>
-              )}
+              <div style={styles.sectionLabel}>Navigate</div>
+              {results.map((item, index) => (
+                <div
+                  key={item.id}
+                  data-cmdk-item
+                  style={{
+                    ...styles.item,
+                    ...(index === activeIndex ? styles.itemActive : {}),
+                  }}
+                  onMouseEnter={() => setActiveIndex(index)}
+                  onClick={() => selectItem(item)}
+                  role="option"
+                  aria-selected={index === activeIndex}
+                >
+                  <div style={styles.itemIcon}>{item.icon}</div>
+                  <span style={styles.itemLabel}>{item.label}</span>
+                  <span style={styles.itemHint}>{item.hint}</span>
+                  <kbd style={styles.itemKbd}>Enter</kbd>
+                </div>
+              ))}
             </>
           )}
         </div>
 
-        {/* Footer hints */}
         <div style={styles.footer}>
           <span style={styles.footerKey}>
             <kbd style={styles.footerKbd}>&uarr;</kbd>

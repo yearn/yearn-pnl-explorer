@@ -14,10 +14,7 @@ export interface HistoricalPriceProvider {
    * Returns Map<lowercase_address, price>.
    * Default implementation calls getPrice() individually.
    */
-  getPrices(
-    timestamp: number,
-    tokens: { chainId: number; address: string }[],
-  ): Promise<Map<string, number>>;
+  getPrices(timestamp: number, tokens: { chainId: number; address: string }[]): Promise<Map<string, number>>;
 }
 
 export const CHAIN_PREFIXES: Record<number, string> = {
@@ -39,9 +36,7 @@ const DL_BASE_URL = "https://coins.llama.fi/prices";
  * Fetch current USD prices for multiple tokens from DefiLlama.
  * Returns Map<lowercase_address, price>.
  */
-export const fetchCurrentPrices = async (
-  tokens: { chainId: number; address: string }[],
-): Promise<Map<string, number>> => {
+export const fetchCurrentPrices = async (tokens: { chainId: number; address: string }[]): Promise<Map<string, number>> => {
   const coinKeys = tokens
     .map((t) => {
       const prefix = CHAIN_PREFIXES[t.chainId];
@@ -81,10 +76,7 @@ export class DefiLlamaPriceProvider implements HistoricalPriceProvider {
     return prices.get(tokenAddress.toLowerCase()) || 0;
   }
 
-  async getPrices(
-    timestamp: number,
-    tokens: { chainId: number; address: string }[],
-  ): Promise<Map<string, number>> {
+  async getPrices(timestamp: number, tokens: { chainId: number; address: string }[]): Promise<Map<string, number>> {
     const coinKeys = tokens
       .map((t) => {
         const prefix = CHAIN_PREFIXES[t.chainId];
@@ -104,14 +96,12 @@ export class DefiLlamaPriceProvider implements HistoricalPriceProvider {
         coins: Record<string, { price: number; decimals: number; symbol: string; confidence: number }>;
       };
 
-      const prices = new Map<string, number>();
-      for (const [key, info] of Object.entries(data.coins)) {
-        const addr = key.split(":")[1]?.toLowerCase();
-        if (addr && info.price > 0) {
-          prices.set(addr, info.price);
-        }
-      }
-      return prices;
+      return new Map(
+        Object.entries(data.coins)
+          .map(([key, info]) => [key.split(":")[1]?.toLowerCase(), info.price] as const)
+          .filter(([addr, price]) => addr && price > 0)
+          .map(([addr, price]) => [addr!, price] as [string, number]),
+      );
     } catch (err) {
       console.warn("DefiLlamaPriceProvider.getPrices failed:", (err as Error).message);
       return new Map();

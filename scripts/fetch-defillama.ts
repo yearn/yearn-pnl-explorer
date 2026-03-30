@@ -22,8 +22,7 @@ const fetchProtocol = async (slug: string): Promise<DefillamaProtocol> => {
   return res.json() as Promise<DefillamaProtocol>;
 };
 
-const isValidChain = (chain: string): boolean =>
-  !chain.includes("-") && chain !== "staking" && chain !== "pool2";
+const isValidChain = (chain: string): boolean => !chain.includes("-") && chain !== "staking" && chain !== "pool2";
 
 export const fetchAndStoreDefillamaData = async () => {
   const now = new Date().toISOString();
@@ -37,9 +36,7 @@ export const fetchAndStoreDefillamaData = async () => {
 
       // Store per-chain current TVL
       await Promise.all(
-        chainEntries.map(([chain, tvl]) =>
-          db.insert(defillamaSnapshots).values({ protocol, chain, tvlUsd: tvl, timestamp: now }),
-        ),
+        chainEntries.map(([chain, tvl]) => db.insert(defillamaSnapshots).values({ protocol, chain, tvlUsd: tvl, timestamp: now })),
       );
 
       // Store total

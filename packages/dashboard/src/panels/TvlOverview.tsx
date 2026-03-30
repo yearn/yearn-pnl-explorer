@@ -1,27 +1,21 @@
-import { useMemo } from "react";
-import { useFetch, fmt, CAT_COLORS, CHART_COLORS, CHAIN_SHORT, CHAIN_NAMES, SkeletonCards, SkeletonChart, exportCSV } from "../hooks";
-
-interface TvlSummary {
-  totalTvl: number;
-  v1Tvl: number;
-  v2Tvl: number;
-  v3Tvl: number;
-  curationTvl: number;
-  overlapAmount: number;
-  tvlByChain: Record<string, number>;
-  overlapByChain: Record<string, number>;
-  crossChainOverlapByChain: Record<string, number>;
-  vaultCount: { total: number; v1: number; v2: number; v3: number; curation: number; active: number; retired: number };
-}
-
+import type { TvlSummary } from "@yearn-tvl/shared";
+import { useContext, useEffect, useMemo } from "react";
+import { DashboardContext } from "../App";
+import { CAT_COLORS, CHAIN_NAMES, CHAIN_SHORT, CHART_COLORS, exportCSV, fmt, SkeletonCards, useFetch } from "../hooks";
 
 export function TvlOverview() {
-  const { data, loading, error } = useFetch<TvlSummary>("/api/tvl");
+  const { chainFilter, setLastFetchedAt } = useContext(DashboardContext);
+  const { data, loading, error, fetchedAt, retry } = useFetch<TvlSummary>("/api/tvl");
+
+  useEffect(() => {
+    if (fetchedAt) setLastFetchedAt(fetchedAt);
+  }, [fetchedAt, setLastFetchedAt]);
 
   const chainData = useMemo(
     () =>
       data
         ? Object.entries(data.tvlByChain)
+            .filter(([chain]) => chainFilter === "all" || chain === chainFilter)
             .map(([chain, rawTvl]) => {
               const overlap = (data.overlapByChain[chain] || 0) + (data.crossChainOverlapByChain[chain] || 0);
               return { chain, label: CHAIN_NAMES[Number(chain)] || CHAIN_SHORT[Number(chain)] || chain, tvl: rawTvl - overlap };
@@ -29,7 +23,7 @@ export function TvlOverview() {
             .filter((c) => c.tvl > 0)
             .sort((a, b) => b.tvl - a.tvl)
         : [],
-    [data],
+    [data, chainFilter],
   );
 
   const categories = useMemo(
@@ -47,22 +41,31 @@ export function TvlOverview() {
 
   const activeCategories = useMemo(() => categories.filter((c) => c.tvl > 0), [categories]);
 
-  if (loading) return <><SkeletonCards count={1} /><SkeletonChart /></>;
-  if (error) return <div className="error">Error: {error}</div>;
+  if (loading) return <SkeletonCards count={1} />;
+  if (error)
+    return (
+      <div className="error-retry">
+        <div className="error-message">Error: {error}</div>
+        <button className="page-btn" onClick={retry}>
+          Retry
+        </button>
+      </div>
+    );
   if (!data) return null;
 
   const grossTvl = data.v1Tvl + data.v2Tvl + data.v3Tvl + data.curationTvl;
+  const totalOverlap = data.overlapAmount + data.crossChainOverlap;
   const maxChainTvl = chainData.length > 0 ? chainData[0].tvl : 1;
 
   return (
     <>
-      {/* ── Metric Card ── */}
+      {/* ── Metric Cards ── */}
       <div className="metric-grid">
         <div className="metric metric-accent">
           <div className="label" style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
             Total TVL (Active)
             <span
-              title="Active TVL includes all non-retired vaults across V1, V2, V3, and Curation, with overlap from double-counted capital deducted."
+              title="Sum of all deposits in active (non-retired) vaults across V1, V2, V3, and Curation categories, minus any double-counted capital where one vault deposits into another."
               style={{
                 display: "inline-flex",
                 alignItems: "center",
@@ -76,19 +79,71 @@ export function TvlOverview() {
                 cursor: "help",
                 flexShrink: 0,
               }}
+              role="img"
+              aria-label="Sum of all deposits in active (non-retired) vaults across V1, V2, V3, and Curation categories, minus any double-counted capital where one vault deposits into another."
             >
               ?
             </span>
           </div>
           <div className="value">{fmt(data.totalTvl)}</div>
-          <div className="sub">{data.vaultCount.active} active vaults across {Object.keys(data.tvlByChain).length} chains</div>
+          <div className="sub">
+            {data.vaultCount.active} active vaults across {Object.keys(data.tvlByChain).length} chains
+          </div>
+        </div>
+
+        <div className="metric">
+          <div className="label">Gross TVL</div>
+          <div className="value text-dim">{fmt(data.activeTvl + data.retiredTvl)}</div>
+          <div className="sub">All vaults before deductions</div>
+        </div>
+
+        <div className="metric metric-red">
+          <div className="label">Overlap Deducted</div>
+          <div className="value" style={{ color: "var(--red)" }}>
+            {fmt(totalOverlap)}
+          </div>
+          <div className="sub">
+            {fmt(data.overlapAmount)} auto+registry + {fmt(data.crossChainOverlap)} cross-chain
+          </div>
+        </div>
+
+        <div className="metric">
+          <div className="label" style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
+            Retired TVL
+            <span
+              title="TVL sitting in vaults that are no longer actively managed — they've been shut down but still hold depositor funds that haven't been withdrawn yet."
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                width: 16,
+                height: 16,
+                borderRadius: "50%",
+                border: "1px solid var(--text-3)",
+                fontSize: "0.6rem",
+                color: "var(--text-3)",
+                cursor: "help",
+                flexShrink: 0,
+              }}
+              role="img"
+              aria-label="TVL sitting in vaults that are no longer actively managed — they've been shut down but still hold depositor funds that haven't been withdrawn yet."
+            >
+              ?
+            </span>
+          </div>
+          <div className="value text-dim">{fmt(data.retiredTvl)}</div>
+          <div className="sub">{data.vaultCount.retired} retired vaults still holding funds</div>
         </div>
       </div>
 
       {/* ── TVL Composition Bar ── */}
       <div className="card">
         <h2>TVL Composition</h2>
-        <div className="composition-bar">
+        <div
+          className="composition-bar"
+          role="img"
+          aria-label={`TVL composition: ${activeCategories.map((c) => `${c.name} ${fmt(c.tvl)}`).join(", ")}`}
+        >
           {activeCategories.map((c) => (
             <div
               key={c.key}
@@ -118,7 +173,11 @@ export function TvlOverview() {
           <button
             className="btn-export"
             onClick={() =>
-              exportCSV("tvl-by-chain.csv", ["Chain", "TVL (USD)"], chainData.map(c => [CHAIN_NAMES[Number(c.chain)] || c.chain, c.tvl]))
+              exportCSV(
+                "tvl-by-chain.csv",
+                ["Chain", "TVL (USD)"],
+                chainData.map((c) => [CHAIN_NAMES[Number(c.chain)] || c.chain, c.tvl]),
+              )
             }
           >
             Export CSV
@@ -147,6 +206,11 @@ export function TvlOverview() {
               <span className="stat-value">{fmt(c.tvl)}</span>
             </div>
           ))}
+          {chainData.length === 0 && (
+            <div className="text-dim" style={{ textAlign: "center", padding: "1rem" }}>
+              No data for selected chain
+            </div>
+          )}
         </div>
       </div>
     </>

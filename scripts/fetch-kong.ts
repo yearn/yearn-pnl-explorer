@@ -2,10 +2,10 @@
  * Fetch all Yearn vaults from Kong GraphQL API and persist to DB.
  * Categories: v2 (apiVersion 0.4.x) and v3 (v3=true). Curation vaults are NOT in Kong.
  */
-import { db, vaults, vaultSnapshots, strategies, strategyDebts, feeConfigs } from "@yearn-tvl/db";
-import { KONG_API_URL, IGNORED_VAULTS, fetchCurrentPrices, KongVaultRESTSchema, validateArray, retryWithBackoff } from "@yearn-tvl/shared";
+import { db, feeConfigs, strategies, strategyDebts, vaultSnapshots, vaults } from "@yearn-tvl/db";
 import type { KongVault } from "@yearn-tvl/shared";
-import { eq, and } from "drizzle-orm";
+import { fetchCurrentPrices, IGNORED_VAULTS, KONG_API_URL, KongVaultRESTSchema, retryWithBackoff, validateArray } from "@yearn-tvl/shared";
+import { and, eq } from "drizzle-orm";
 import { priceViaSugarOracle } from "./lib/velo-oracle.js";
 
 const VAULTS_QUERY = `
@@ -30,35 +30,35 @@ const VAULTS_QUERY = `
   }
 `;
 
-const classifyCategory = (vault: KongVault): "v2" | "v3" =>
-  vault.v3 ? "v3" : "v2";
+const classifyCategory = (vault: KongVault): "v2" | "v3" => (vault.v3 ? "v3" : "v2");
 
 const isIgnored = (address: string, chainId: number): boolean =>
-  IGNORED_VAULTS.some(
-    (v) => v.address.toLowerCase() === address.toLowerCase() && v.chainId === chainId
-  );
+  IGNORED_VAULTS.some((v) => v.address.toLowerCase() === address.toLowerCase() && v.chainId === chainId);
 
 const fetchKongVaults = async (): Promise<KongVault[]> => {
-  return retryWithBackoff(async () => {
-    const res = await fetch(KONG_API_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query: VAULTS_QUERY }),
-    });
+  return retryWithBackoff(
+    async () => {
+      const res = await fetch(KONG_API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: VAULTS_QUERY }),
+      });
 
-    if (!res.ok) throw new Error(`Kong API error: ${res.status} ${res.statusText}`);
-    const json = (await res.json()) as { data?: { vaults: unknown[] }; errors?: Array<{ message: string }> };
-    if (json.errors?.length) {
-      throw new Error(`Kong GraphQL errors: ${json.errors.map((e) => e.message).join(", ")}`);
-    }
-    if (!json.data?.vaults) {
-      throw new Error("Kong API returned no vault data");
-    }
+      if (!res.ok) throw new Error(`Kong API error: ${res.status} ${res.statusText}`);
+      const json = (await res.json()) as { data?: { vaults: unknown[] }; errors?: Array<{ message: string }> };
+      if (json.errors?.length) {
+        throw new Error(`Kong GraphQL errors: ${json.errors.map((e) => e.message).join(", ")}`);
+      }
+      if (!json.data?.vaults) {
+        throw new Error("Kong API returned no vault data");
+      }
 
-    const validated = validateArray(json.data.vaults, KongVaultRESTSchema, "KongVault");
-    console.log(`Validated ${validated.length}/${json.data.vaults.length} vaults`);
-    return validated as unknown as KongVault[];
-  }, { label: "fetchKongVaults" });
+      const validated = validateArray(json.data.vaults, KongVaultRESTSchema, "KongVault");
+      console.log(`Validated ${validated.length}/${json.data.vaults.length} vaults`);
+      return validated as unknown as KongVault[];
+    },
+    { label: "fetchKongVaults" },
+  );
 };
 
 const upsertVault = async (kongVault: KongVault): Promise<number> => {
@@ -66,10 +66,7 @@ const upsertVault = async (kongVault: KongVault): Promise<number> => {
   const category = classifyCategory(kongVault);
 
   const existing = await db.query.vaults.findFirst({
-    where: and(
-      eq(vaults.address, kongVault.address),
-      eq(vaults.chainId, kongVault.chainId)
-    ),
+    where: and(eq(vaults.address, kongVault.address), eq(vaults.chainId, kongVault.chainId)),
   });
 
   if (existing) {
@@ -132,20 +129,20 @@ const upsertStrategiesAndDebts = async (vaultId: number, kongVault: KongVault) =
 
   if (!kongVault.debts?.length) return;
 
-  for (const debt of kongVault.debts) {
+  await kongVault.debts.reduce(async (prevP, debt) => {
+    await prevP;
     const existing = await db.query.strategies.findFirst({
-      where: and(
-        eq(strategies.address, debt.strategy),
-        eq(strategies.vaultId, vaultId)
-      ),
+      where: and(eq(strategies.address, debt.strategy), eq(strategies.vaultId, vaultId)),
     });
 
     const strategyId = existing
       ? existing.id
-      : (await db
-          .insert(strategies)
-          .values({ address: debt.strategy, vaultId, chainId: kongVault.chainId })
-          .returning({ id: strategies.id }))[0].id;
+      : (
+          await db
+            .insert(strategies)
+            .values({ address: debt.strategy, vaultId, chainId: kongVault.chainId })
+            .returning({ id: strategies.id })
+        )[0].id;
 
     await db.insert(strategyDebts).values({
       strategyId,
@@ -155,7 +152,7 @@ const upsertStrategiesAndDebts = async (vaultId: number, kongVault: KongVault) =
       maxDebt: debt.maxDebt,
       timestamp: now,
     });
-  }
+  }, Promise.resolve());
 };
 
 const upsertFees = async (vaultId: number, kongVault: KongVault) => {
@@ -201,21 +198,19 @@ const priceMissingTvl = async (zeroTvlVaults: { vaultId: number; kongVault: Kong
   const priceable = zeroTvlVaults.filter((v) => v.kongVault.asset?.address);
   if (priceable.length === 0) return 0;
 
-  const prices = await fetchCurrentPrices(
-    priceable.map((v) => ({ chainId: v.kongVault.chainId, address: v.kongVault.asset!.address })),
-  );
+  const prices = await fetchCurrentPrices(priceable.map((v) => ({ chainId: v.kongVault.chainId, address: v.kongVault.asset!.address })));
 
-  let fixed = 0;
-  for (const vault of priceable) {
+  const fixed = await priceable.reduce(async (accP, vault) => {
+    const acc = await accP;
     const price = prices.get(vault.kongVault.asset!.address.toLowerCase());
-    if (!price || price <= 0) continue;
+    if (!price || price <= 0) return acc;
 
     const decimals = vault.kongVault.asset!.decimals;
     const totalAssets = BigInt(vault.kongVault.totalAssets || "0");
-    if (totalAssets === 0n) continue;
+    if (totalAssets === 0n) return acc;
 
-    const tvlUsd = Number(totalAssets) / 10 ** decimals * price;
-    if (tvlUsd <= 0) continue;
+    const tvlUsd = (Number(totalAssets) / 10 ** decimals) * price;
+    if (tvlUsd <= 0) return acc;
 
     const latestSnapshot = await db.query.vaultSnapshots.findFirst({
       where: eq(vaultSnapshots.vaultId, vault.vaultId),
@@ -223,14 +218,12 @@ const priceMissingTvl = async (zeroTvlVaults: { vaultId: number; kongVault: Kong
     });
 
     if (latestSnapshot) {
-      await db
-        .update(vaultSnapshots)
-        .set({ tvlUsd })
-        .where(eq(vaultSnapshots.id, latestSnapshot.id));
+      await db.update(vaultSnapshots).set({ tvlUsd }).where(eq(vaultSnapshots.id, latestSnapshot.id));
       console.log(`  Priced ${vault.kongVault.name} (${vault.kongVault.chainId}): $${tvlUsd.toFixed(0)}`);
-      fixed++;
+      return acc + 1;
     }
-  }
+    return acc;
+  }, Promise.resolve(0));
 
   return fixed;
 };
@@ -239,9 +232,7 @@ const priceMissingTvl = async (zeroTvlVaults: { vaultId: number; kongVault: Kong
  * Fallback 2: Use Velodrome/Aerodrome Sugar Oracle for LP tokens on Optimism/Base
  * that DefiLlama can't price.
  */
-const priceViaSugarOracleFallback = async (
-  veloVaults: { vaultId: number; kongVault: KongVault }[],
-) => {
+const priceViaSugarOracleFallback = async (veloVaults: { vaultId: number; kongVault: KongVault }[]) => {
   const byChain = veloVaults.reduce((acc, v) => {
     const chain = v.kongVault.chainId;
     const arr = acc.get(chain) ?? [];
@@ -249,36 +240,43 @@ const priceViaSugarOracleFallback = async (
     return acc.set(chain, arr);
   }, new Map<number, typeof veloVaults>());
 
-  let fixed = 0;
-  for (const [chainId, chainVaults] of byChain) {
+  const fixed = await [...byChain].reduce(async (outerAccP, [chainId, chainVaults]) => {
+    const outerAcc = await outerAccP;
+
     // Only try vaults whose latest snapshot is still 0
-    const toPrice: typeof chainVaults = [];
-    for (const v of chainVaults) {
-      const snap = await db.query.vaultSnapshots.findFirst({
-        where: eq(vaultSnapshots.vaultId, v.vaultId),
-        orderBy: (s, { desc }) => [desc(s.id)],
-      });
-      if (snap && (!snap.tvlUsd || snap.tvlUsd === 0)) {
-        toPrice.push(v);
-      }
-    }
-    if (toPrice.length === 0) continue;
+    const toPrice = await chainVaults.reduce(
+      async (accP, v) => {
+        const acc = await accP;
+        const snap = await db.query.vaultSnapshots.findFirst({
+          where: eq(vaultSnapshots.vaultId, v.vaultId),
+          orderBy: (s, { desc }) => [desc(s.id)],
+        });
+        if (snap && (!snap.tvlUsd || snap.tvlUsd === 0)) {
+          return [...acc, v];
+        }
+        return acc;
+      },
+      Promise.resolve([] as typeof chainVaults),
+    );
+
+    if (toPrice.length === 0) return outerAcc;
 
     const assetAddresses = toPrice.map((v) => v.kongVault.asset?.address).filter(Boolean) as string[];
     const prices = await priceViaSugarOracle(chainId, assetAddresses);
 
-    for (const v of toPrice) {
+    return toPrice.reduce(async (innerAccP, v) => {
+      const innerAcc = await innerAccP;
       const assetAddr = v.kongVault.asset?.address?.toLowerCase();
-      if (!assetAddr) continue;
+      if (!assetAddr) return innerAcc;
       const price = prices.get(assetAddr);
-      if (!price || price <= 0) continue;
+      if (!price || price <= 0) return innerAcc;
 
       const decimals = v.kongVault.asset.decimals;
       const totalAssets = BigInt(v.kongVault.totalAssets || "0");
-      if (totalAssets === 0n) continue;
+      if (totalAssets === 0n) return innerAcc;
 
-      const tvlUsd = Number(totalAssets) / 10 ** decimals * price;
-      if (tvlUsd <= 0) continue;
+      const tvlUsd = (Number(totalAssets) / 10 ** decimals) * price;
+      if (tvlUsd <= 0) return innerAcc;
 
       const snap = await db.query.vaultSnapshots.findFirst({
         where: eq(vaultSnapshots.vaultId, v.vaultId),
@@ -287,10 +285,11 @@ const priceViaSugarOracleFallback = async (
       if (snap) {
         await db.update(vaultSnapshots).set({ tvlUsd }).where(eq(vaultSnapshots.id, snap.id));
         console.log(`  Priced ${v.kongVault.name} (${chainId}): $${tvlUsd.toFixed(0)}`);
-        fixed++;
+        return innerAcc + 1;
       }
-    }
-  }
+      return innerAcc;
+    }, Promise.resolve(outerAcc));
+  }, Promise.resolve(0));
   return fixed;
 };
 
@@ -301,20 +300,24 @@ export const fetchAndStoreKongData = async () => {
 
   const activeVaults = kongVaults.filter((kv) => !isIgnored(kv.address, kv.chainId));
   const skipped = kongVaults.length - activeVaults.length;
-  const zeroTvlVaults: { vaultId: number; kongVault: KongVault }[] = [];
 
-  for (const kv of activeVaults) {
-    const vaultId = await upsertVault(kv);
-    await upsertSnapshot(vaultId, kv);
-    await upsertStrategiesAndDebts(vaultId, kv);
-    await upsertFees(vaultId, kv);
+  const zeroTvlVaults = await activeVaults.reduce(
+    async (accP, kv) => {
+      const acc = await accP;
+      const vaultId = await upsertVault(kv);
+      await upsertSnapshot(vaultId, kv);
+      await upsertStrategiesAndDebts(vaultId, kv);
+      await upsertFees(vaultId, kv);
 
-    const tvl = kv.tvl?.close ?? 0;
-    const totalAssets = BigInt(kv.totalAssets || "0");
-    if (tvl === 0 && totalAssets > 0n) {
-      zeroTvlVaults.push({ vaultId, kongVault: kv });
-    }
-  }
+      const tvl = kv.tvl?.close ?? 0;
+      const totalAssets = BigInt(kv.totalAssets || "0");
+      if (tvl === 0 && totalAssets > 0n) {
+        return [...acc, { vaultId, kongVault: kv }];
+      }
+      return acc;
+    },
+    Promise.resolve([] as { vaultId: number; kongVault: KongVault }[]),
+  );
 
   const stored = activeVaults.length;
   console.log(`Stored ${stored} vaults, skipped ${skipped} ignored`);
@@ -325,9 +328,7 @@ export const fetchAndStoreKongData = async () => {
     console.log(`Priced ${fixed}/${zeroTvlVaults.length} vaults via DefiLlama`);
   }
 
-  const stillZero = zeroTvlVaults.filter((v) =>
-    v.kongVault.chainId === 10 || v.kongVault.chainId === 8453,
-  );
+  const stillZero = zeroTvlVaults.filter((v) => v.kongVault.chainId === 10 || v.kongVault.chainId === 8453);
   if (stillZero.length > 0) {
     console.log(`\nFallback 2 (Sugar Oracle) for ${stillZero.length} Optimism/Base vaults...`);
     const fixed = await priceViaSugarOracleFallback(stillZero);

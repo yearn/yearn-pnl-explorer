@@ -1,9 +1,10 @@
 /**
  * Orchestrator: runs all fetch scripts in sequence to populate the DB.
  */
-import { fetchAndStoreKongData } from "./fetch-kong.js";
-import { fetchAndStoreDefillamaData } from "./fetch-defillama.js";
+
 import { fetchAndStoreCurationData } from "./fetch-curation.js";
+import { fetchAndStoreDefillamaData } from "./fetch-defillama.js";
+import { fetchAndStoreKongData } from "./fetch-kong.js";
 import { fetchV1Vaults } from "./fetch-v1-vaults.js";
 
 const seed = async () => {

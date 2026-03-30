@@ -4,10 +4,10 @@
  * Note: Kong transfers are limited to ~100 results per query with no pagination,
  * and mainly work for Ethereum V2 vaults.
  */
-import { db, vaults, depositors } from "@yearn-tvl/db";
-import { eq, and, sql } from "drizzle-orm";
-import { KONG_API_URL, KongTransferRESTSchema, validateArray, retryWithBackoff } from "@yearn-tvl/shared";
+import { db, depositors, vaults } from "@yearn-tvl/db";
 import type { KongTransferREST } from "@yearn-tvl/shared";
+import { KONG_API_URL, KongTransferRESTSchema, retryWithBackoff, validateArray } from "@yearn-tvl/shared";
+import { and, eq } from "drizzle-orm";
 
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 
@@ -34,36 +34,37 @@ const TRANSFERS_QUERY = `
 
 const fetchTransfers = async (chainId: number, vaultAddress: string): Promise<KongTransfer[]> => {
   try {
-    return await retryWithBackoff(async () => {
-      const res = await fetch(KONG_API_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          query: TRANSFERS_QUERY,
-          variables: { chainId, address: vaultAddress },
-        }),
-      });
+    return await retryWithBackoff(
+      async () => {
+        const res = await fetch(KONG_API_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            query: TRANSFERS_QUERY,
+            variables: { chainId, address: vaultAddress },
+          }),
+        });
 
-      if (!res.ok) throw new Error(`Kong API error: ${res.status}`);
+        if (!res.ok) throw new Error(`Kong API error: ${res.status}`);
 
-      const json = (await res.json()) as { data?: { transfers?: unknown[] }; errors?: unknown[] };
-      if (json.errors) {
-        console.warn(`  GraphQL errors for ${vaultAddress}:`, json.errors);
-        return [];
-      }
+        const json = (await res.json()) as { data?: { transfers?: unknown[] }; errors?: unknown[] };
+        if (json.errors) {
+          console.warn(`  GraphQL errors for ${vaultAddress}:`, json.errors);
+          return [];
+        }
 
-      const raw = json.data?.transfers ?? [];
-      return validateArray(raw, KongTransferRESTSchema, "KongTransfer");
-    }, { label: `fetchTransfers(${vaultAddress.slice(0, 10)})` });
+        const raw = json.data?.transfers ?? [];
+        return validateArray(raw, KongTransferRESTSchema, "KongTransfer");
+      },
+      { label: `fetchTransfers(${vaultAddress.slice(0, 10)})` },
+    );
   } catch {
     return [];
   }
 };
 
 const buildDepositorMap = (transfers: KongTransfer[]): Map<string, DepositorEntry> => {
-  const map = new Map<string, DepositorEntry>();
-
-  for (const t of transfers) {
+  return transfers.reduce((map, t) => {
     const valueUsd = t.valueUsd ?? 0;
     const blockTime = t.blockTime;
 
@@ -92,9 +93,9 @@ const buildDepositorMap = (transfers: KongTransfer[]): Map<string, DepositorEntr
         map.set(addr, { address: addr, netUsd: -valueUsd, firstSeen: blockTime, lastSeen: blockTime });
       }
     }
-  }
 
-  return map;
+    return map;
+  }, new Map<string, DepositorEntry>());
 };
 
 const blockTimeToIso = (blockTime: string): string => {
@@ -106,19 +107,12 @@ const blockTimeToIso = (blockTime: string): string => {
   return blockTime;
 };
 
-const upsertDepositors = async (
-  vaultId: number,
-  chainId: number,
-  depositorMap: Map<string, DepositorEntry>
-): Promise<number> => {
-  let count = 0;
+const upsertDepositors = async (vaultId: number, chainId: number, depositorMap: Map<string, DepositorEntry>): Promise<number> => {
+  return [...depositorMap.values()].reduce(async (accPromise, entry) => {
+    const count = await accPromise;
 
-  for (const entry of depositorMap.values()) {
     const existing = await db.query.depositors.findFirst({
-      where: and(
-        eq(depositors.address, entry.address),
-        eq(depositors.vaultId, vaultId)
-      ),
+      where: and(eq(depositors.address, entry.address), eq(depositors.vaultId, vaultId)),
     });
 
     const firstSeen = blockTimeToIso(entry.firstSeen);
@@ -145,50 +139,52 @@ const upsertDepositors = async (
       });
     }
 
-    count++;
-  }
-
-  return count;
+    return count + 1;
+  }, Promise.resolve(0));
 };
 
 export const fetchAndStoreDepositors = async () => {
   // Get active (non-retired) vaults, focusing on chain 1 where transfers work
   const activeVaults = await db.query.vaults.findMany({
-    where: and(
-      eq(vaults.isRetired, false),
-      eq(vaults.chainId, 1)
-    ),
+    where: and(eq(vaults.isRetired, false), eq(vaults.chainId, 1)),
   });
 
   console.log(`Found ${activeVaults.length} active Ethereum vaults to process`);
 
-  let totalDepositors = 0;
-  let vaultsWithData = 0;
-  const perVaultCounts: Array<{ name: string; address: string; count: number }> = [];
+  const { totalDepositors, vaultsWithData, perVaultCounts } = await activeVaults.reduce(
+    async (accPromise, vault) => {
+      const acc = await accPromise;
+      const transfers = await fetchTransfers(vault.chainId, vault.address);
 
-  for (const vault of activeVaults) {
-    const transfers = await fetchTransfers(vault.chainId, vault.address);
+      if (transfers.length === 0) {
+        return acc;
+      }
 
-    if (transfers.length === 0) {
-      continue;
-    }
+      const depositorMap = buildDepositorMap(transfers);
 
-    const depositorMap = buildDepositorMap(transfers);
+      if (depositorMap.size === 0) {
+        return acc;
+      }
 
-    if (depositorMap.size === 0) {
-      continue;
-    }
+      const count = await upsertDepositors(vault.id, vault.chainId, depositorMap);
 
-    const count = await upsertDepositors(vault.id, vault.chainId, depositorMap);
-    totalDepositors += count;
-    vaultsWithData++;
-    perVaultCounts.push({ name: vault.name ?? vault.address, address: vault.address, count });
+      console.log(`  ${vault.name ?? vault.address.slice(0, 10)}: ${transfers.length} transfers -> ${count} depositors`);
 
-    console.log(`  ${vault.name ?? vault.address.slice(0, 10)}: ${transfers.length} transfers -> ${count} depositors`);
+      // Small delay to avoid hammering the API
+      await new Promise((r) => setTimeout(r, 100));
 
-    // Small delay to avoid hammering the API
-    await new Promise((r) => setTimeout(r, 100));
-  }
+      return {
+        totalDepositors: acc.totalDepositors + count,
+        vaultsWithData: acc.vaultsWithData + 1,
+        perVaultCounts: [...acc.perVaultCounts, { name: vault.name ?? vault.address, address: vault.address, count }],
+      };
+    },
+    Promise.resolve({
+      totalDepositors: 0,
+      vaultsWithData: 0,
+      perVaultCounts: [] as Array<{ name: string; address: string; count: number }>,
+    }),
+  );
 
   // Print summary
   console.log("\n--- Summary ---");
@@ -197,10 +193,11 @@ export const fetchAndStoreDepositors = async () => {
 
   if (perVaultCounts.length > 0) {
     console.log("\nPer-vault depositor counts:");
-    const sorted = perVaultCounts.sort((a, b) => b.count - a.count);
-    for (const v of sorted) {
-      console.log(`  ${v.name} (${v.address.slice(0, 10)}...): ${v.count} depositors`);
-    }
+    perVaultCounts
+      .sort((a, b) => b.count - a.count)
+      .forEach((v) => {
+        console.log(`  ${v.name} (${v.address.slice(0, 10)}...): ${v.count} depositors`);
+      });
   }
 
   return { totalDepositors, vaultsWithData, totalVaults: activeVaults.length };

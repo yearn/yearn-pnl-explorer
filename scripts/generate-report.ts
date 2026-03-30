@@ -5,11 +5,12 @@
  * Usage: bun run report
  * Requires: API server running on :3456 (bun run dev:api)
  */
-import PDFDocument from "pdfkit";
-import { createWriteStream, mkdirSync } from "fs";
-import { join, dirname } from "path";
-import { fileURLToPath } from "url";
+
+import { createWriteStream, mkdirSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { CHAIN_NAMES } from "@yearn-tvl/shared";
+import PDFDocument from "pdfkit";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const REPORTS_DIR = join(ROOT, "reports");
@@ -70,8 +71,24 @@ interface VaultList {
 }
 
 interface DeadTvl {
-  summary: { totalDeadTvl: number; totalLowYieldTvl: number; healthyTvl: number; deadVaultCount: number; lowYieldCount: number; healthyCount: number };
-  vaults: Array<{ address: string; chainId: number; name: string | null; category: string; tvlUsd: number; classification: string; gains365d: number; reportCount365d: number }>;
+  summary: {
+    totalDeadTvl: number;
+    totalLowYieldTvl: number;
+    healthyTvl: number;
+    deadVaultCount: number;
+    lowYieldCount: number;
+    healthyCount: number;
+  };
+  vaults: Array<{
+    address: string;
+    chainId: number;
+    name: string | null;
+    category: string;
+    tvlUsd: number;
+    classification: string;
+    gains365d: number;
+    reportCount365d: number;
+  }>;
 }
 
 // --- Formatting helpers ---
@@ -101,7 +118,12 @@ function addHeader(doc: PDFKit.PDFDocument, title: string) {
   doc.fontSize(14).font("Helvetica-Bold").fillColor("#ffffff").text(title, MARGIN, doc.y, { width: CONTENT_WIDTH });
   doc.moveDown(0.3);
   // Underline
-  doc.moveTo(MARGIN, doc.y).lineTo(PAGE_WIDTH - MARGIN, doc.y).strokeColor("#444444").lineWidth(0.5).stroke();
+  doc
+    .moveTo(MARGIN, doc.y)
+    .lineTo(PAGE_WIDTH - MARGIN, doc.y)
+    .strokeColor("#444444")
+    .lineWidth(0.5)
+    .stroke();
   doc.moveDown(0.5);
 }
 
@@ -111,16 +133,19 @@ function addMetric(doc: PDFKit.PDFDocument, label: string, value: string, x: num
   doc.moveDown(0.2);
 }
 
-function addTableRow(doc: PDFKit.PDFDocument, cols: Array<{ text: string; width: number; align?: "left" | "right" }>, opts?: { bold?: boolean; color?: string }) {
+function addTableRow(
+  doc: PDFKit.PDFDocument,
+  cols: Array<{ text: string; width: number; align?: "left" | "right" }>,
+  opts?: { bold?: boolean; color?: string },
+) {
   const y = doc.y;
   const font = opts?.bold ? "Helvetica-Bold" : "Helvetica";
   const color = opts?.color || "#cccccc";
   doc.fontSize(8).font(font).fillColor(color);
-  let x = MARGIN;
-  for (const col of cols) {
+  cols.reduce((x, col) => {
     doc.text(col.text, x, y, { width: col.width, align: col.align || "left" });
-    x += col.width;
-  }
+    return x + col.width;
+  }, MARGIN);
   doc.y = y + 13;
 }
 
@@ -166,9 +191,11 @@ async function generateReport() {
   doc.rect(0, 0, 612, 792).fill("#1a1a2e");
 
   // Title
-  doc.fontSize(22).font("Helvetica-Bold").fillColor("#ffffff")
-    .text("Yearn Finance", MARGIN, 50);
-  doc.fontSize(12).font("Helvetica").fillColor("#888888")
+  doc.fontSize(22).font("Helvetica-Bold").fillColor("#ffffff").text("Yearn Finance", MARGIN, 50);
+  doc
+    .fontSize(12)
+    .font("Helvetica")
+    .fillColor("#888888")
     .text(`TVL & Fee Report — ${dateStr}`, MARGIN, doc.y + 2);
   doc.moveDown(2);
 
@@ -211,14 +238,15 @@ async function generateReport() {
   ];
   addTableRow(doc, chainCols, { bold: true, color: "#888888" });
 
-  const chainEntries = Object.entries(tvl.tvlByChain).sort((a, b) => b[1] - a[1]);
-  for (const [chain, chainTvl] of chainEntries) {
-    addTableRow(doc, [
-      { text: chain, width: 120 },
-      { text: fmtUsd(chainTvl), width: 120, align: "right" },
-      { text: `${((chainTvl / tvl.totalTvl) * 100).toFixed(1)}%`, width: 100, align: "right" },
-    ]);
-  }
+  Object.entries(tvl.tvlByChain)
+    .sort((a, b) => b[1] - a[1])
+    .forEach(([chain, chainTvl]) => {
+      addTableRow(doc, [
+        { text: chain, width: 120 },
+        { text: fmtUsd(chainTvl), width: 120, align: "right" },
+        { text: `${((chainTvl / tvl.totalTvl) * 100).toFixed(1)}%`, width: 100, align: "right" },
+      ]);
+    });
 
   doc.moveDown(1.5);
 
@@ -239,49 +267,57 @@ async function generateReport() {
   // By category
   doc.fontSize(10).font("Helvetica-Bold").fillColor("#ffffff").text("By Category", MARGIN);
   doc.moveDown(0.3);
-  addTableRow(doc, [
-    { text: "Category", width: 130 },
-    { text: "Ours", width: 100, align: "right" },
-    { text: "DefiLlama", width: 100, align: "right" },
-    { text: "Diff", width: 100, align: "right" },
-  ], { bold: true, color: "#888888" });
+  addTableRow(
+    doc,
+    [
+      { text: "Category", width: 130 },
+      { text: "Ours", width: 100, align: "right" },
+      { text: "DefiLlama", width: 100, align: "right" },
+      { text: "Diff", width: 100, align: "right" },
+    ],
+    { bold: true, color: "#888888" },
+  );
 
-  for (const cat of comparison.byCategory) {
+  comparison.byCategory.forEach((cat) => {
     addTableRow(doc, [
       { text: cat.category, width: 130 },
       { text: fmtUsd(cat.ours), width: 100, align: "right" },
       { text: fmtUsd(cat.defillama), width: 100, align: "right" },
       { text: fmtUsd(cat.difference), width: 100, align: "right" },
     ]);
-  }
+  });
 
   doc.moveDown(0.5);
 
   // By chain
   doc.fontSize(10).font("Helvetica-Bold").fillColor("#ffffff").text("By Chain", MARGIN);
   doc.moveDown(0.3);
-  addTableRow(doc, [
-    { text: "Chain", width: 100 },
-    { text: "Ours", width: 110, align: "right" },
-    { text: "DefiLlama", width: 110, align: "right" },
-    { text: "Diff", width: 110, align: "right" },
-  ], { bold: true, color: "#888888" });
+  addTableRow(
+    doc,
+    [
+      { text: "Chain", width: 100 },
+      { text: "Ours", width: 110, align: "right" },
+      { text: "DefiLlama", width: 110, align: "right" },
+      { text: "Diff", width: 110, align: "right" },
+    ],
+    { bold: true, color: "#888888" },
+  );
 
-  for (const c of comparison.byChain.slice(0, 10)) {
+  comparison.byChain.slice(0, 10).forEach((c) => {
     addTableRow(doc, [
       { text: c.chain, width: 100 },
       { text: fmtUsd(c.ours), width: 110, align: "right" },
       { text: fmtUsd(c.defillama), width: 110, align: "right" },
       { text: fmtUsd(c.difference), width: 110, align: "right" },
     ]);
-  }
+  });
 
   if (comparison.notes.length > 0) {
     doc.moveDown(0.5);
     doc.fontSize(8).font("Helvetica").fillColor("#888888");
-    for (const note of comparison.notes) {
+    comparison.notes.forEach((note) => {
       doc.text(`• ${note}`, MARGIN, doc.y, { width: CONTENT_WIDTH });
-    }
+    });
   }
 
   doc.moveDown(1.5);
@@ -312,23 +348,28 @@ async function generateReport() {
   // Fee by chain
   doc.fontSize(10).font("Helvetica-Bold").fillColor("#ffffff").text("Fees by Chain", MARGIN);
   doc.moveDown(0.3);
-  addTableRow(doc, [
-    { text: "Chain", width: 120 },
-    { text: "Fee Revenue", width: 120, align: "right" },
-    { text: "Gains", width: 120, align: "right" },
-    { text: "Vaults", width: 80, align: "right" },
-  ], { bold: true, color: "#888888" });
+  addTableRow(
+    doc,
+    [
+      { text: "Chain", width: 120 },
+      { text: "Fee Revenue", width: 120, align: "right" },
+      { text: "Gains", width: 120, align: "right" },
+      { text: "Vaults", width: 80, align: "right" },
+    ],
+    { bold: true, color: "#888888" },
+  );
 
-  const feeChains = Object.entries(fees.byChain).sort((a, b) => b[1].feeRevenue - a[1].feeRevenue);
-  for (const [chain, data] of feeChains) {
-    ensureSpace(doc, 15);
-    addTableRow(doc, [
-      { text: chain, width: 120 },
-      { text: fmtUsd(data.feeRevenue), width: 120, align: "right" },
-      { text: fmtUsd(data.gains), width: 120, align: "right" },
-      { text: String(data.vaultCount), width: 80, align: "right" },
-    ]);
-  }
+  Object.entries(fees.byChain)
+    .sort((a, b) => b[1].feeRevenue - a[1].feeRevenue)
+    .forEach(([chain, data]) => {
+      ensureSpace(doc, 15);
+      addTableRow(doc, [
+        { text: chain, width: 120 },
+        { text: fmtUsd(data.feeRevenue), width: 120, align: "right" },
+        { text: fmtUsd(data.gains), width: 120, align: "right" },
+        { text: String(data.vaultCount), width: 80, align: "right" },
+      ]);
+    });
 
   doc.moveDown(1.5);
 
@@ -339,14 +380,18 @@ async function generateReport() {
   addHeader(doc, "Weekly Fee History (Last 12 Weeks)");
 
   const recentWeeks = feeHistory.buckets.slice(-12);
-  addTableRow(doc, [
-    { text: "Week", width: 100 },
-    { text: "Gains", width: 110, align: "right" },
-    { text: "Perf. Fees", width: 110, align: "right" },
-    { text: "Reports", width: 80, align: "right" },
-  ], { bold: true, color: "#888888" });
+  addTableRow(
+    doc,
+    [
+      { text: "Week", width: 100 },
+      { text: "Gains", width: 110, align: "right" },
+      { text: "Perf. Fees", width: 110, align: "right" },
+      { text: "Reports", width: 80, align: "right" },
+    ],
+    { bold: true, color: "#888888" },
+  );
 
-  for (const week of recentWeeks) {
+  recentWeeks.forEach((week) => {
     ensureSpace(doc, 15);
     addTableRow(doc, [
       { text: week.period, width: 100 },
@@ -354,7 +399,7 @@ async function generateReport() {
       { text: fmtUsd(week.performanceFeeRevenue), width: 110, align: "right" },
       { text: String(week.reportCount), width: 80, align: "right" },
     ]);
-  }
+  });
 
   doc.moveDown(1.5);
 
@@ -364,14 +409,18 @@ async function generateReport() {
   ensureSpace(doc, 250);
   addHeader(doc, "Top 20 Vaults by TVL");
 
-  addTableRow(doc, [
-    { text: "Vault", width: 180 },
-    { text: "Chain", width: 80 },
-    { text: "Cat", width: 50 },
-    { text: "TVL", width: 100, align: "right" },
-  ], { bold: true, color: "#888888" });
+  addTableRow(
+    doc,
+    [
+      { text: "Vault", width: 180 },
+      { text: "Chain", width: 80 },
+      { text: "Cat", width: 50 },
+      { text: "TVL", width: 100, align: "right" },
+    ],
+    { bold: true, color: "#888888" },
+  );
 
-  for (const v of vaultList.vaults.slice(0, 20)) {
+  vaultList.vaults.slice(0, 20).forEach((v) => {
     ensureSpace(doc, 15);
     const chain = CHAIN_NAMES[v.chainId] || `${v.chainId}`;
     addTableRow(doc, [
@@ -380,7 +429,7 @@ async function generateReport() {
       { text: v.category, width: 50 },
       { text: fmtUsd(v.tvlUsd), width: 100, align: "right" },
     ]);
-  }
+  });
 
   doc.moveDown(1.5);
 
@@ -414,13 +463,17 @@ async function generateReport() {
   if (deadVaults.length > 0) {
     doc.fontSize(10).font("Helvetica-Bold").fillColor("#ffffff").text("Top Dead Vaults (no reports in 365d)", MARGIN);
     doc.moveDown(0.3);
-    addTableRow(doc, [
-      { text: "Vault", width: 200 },
-      { text: "Chain", width: 80 },
-      { text: "TVL", width: 100, align: "right" },
-    ], { bold: true, color: "#888888" });
+    addTableRow(
+      doc,
+      [
+        { text: "Vault", width: 200 },
+        { text: "Chain", width: 80 },
+        { text: "TVL", width: 100, align: "right" },
+      ],
+      { bold: true, color: "#888888" },
+    );
 
-    for (const v of deadVaults) {
+    deadVaults.forEach((v) => {
       ensureSpace(doc, 15);
       const chain = CHAIN_NAMES[v.chainId] || `${v.chainId}`;
       addTableRow(doc, [
@@ -428,7 +481,7 @@ async function generateReport() {
         { text: chain, width: 80 },
         { text: fmtUsd(v.tvlUsd), width: 100, align: "right" },
       ]);
-    }
+    });
   }
 
   doc.end();

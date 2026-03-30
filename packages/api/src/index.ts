@@ -1,12 +1,12 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { rateLimit } from "./middleware/rate-limit.js";
-import { tvl } from "./routes/tvl.js";
+import { analysis } from "./routes/analysis.js";
+import { audit } from "./routes/audit.js";
 import { comparison } from "./routes/comparison.js";
 import { fees } from "./routes/fees.js";
-import { analysis } from "./routes/analysis.js";
 import { profitability } from "./routes/profitability.js";
-import { audit } from "./routes/audit.js";
+import { tvl } from "./routes/tvl.js";
 
 const PORT = Number(process.env.PORT) || 3456;
 const app = new Hono();

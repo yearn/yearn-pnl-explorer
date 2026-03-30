@@ -1,80 +1,100 @@
-# Yearn TVL Tracker
+# Yearn PnL Explorer
 
-Tracks Yearn Finance TVL across all vault generations (V1, V2, V3) and curation vaults (Morpho Blue, Turtle Club), with DefiLlama comparison, fee revenue analysis, and depositor analytics.
+`yearn-metrics` is currently the frontend shell for Yearn address-level holdings and PnL analysis.
+
+The active product is a PnL-first dashboard in `packages/dashboard` that talks to the holdings backend in the separate [`yearn.fi`](../yearn.fi) repo. The dashboard does not implement PnL logic itself. It fetches compact portfolio data and on-demand drilldown data from the backend API.
+
+## Current Scope
+
+- Address-driven PnL lookup
+- Portfolio summary cards
+- 365d portfolio value chart
+- Per-vault breakdown table
+- On-demand drilldown for lots, realized entries, unknown transfers, unknown withdrawals, and journal timeline
+- Accounting-quality warnings for partial / unknown basis
+
+## Backend Contract
+
+The dashboard currently consumes these routes from the `yearn.fi` holdings backend:
+
+```text
+GET /api/holdings/history?address=0x...
+GET /api/holdings/pnl?address=0x...&version=all|v2|v3&unknownMode=strict|zero_basis|windfall&fetchType=seq|parallel&paginationMode=paged|all
+GET /api/holdings/pnl/drilldown?address=0x...&vault=0x...&version=all|v2|v3&unknownMode=strict|zero_basis|windfall&fetchType=seq|parallel&paginationMode=paged|all
+```
 
 ## Quick Start
 
+1. Start the holdings backend from the `yearn.fi` repo on `http://localhost:3001`.
+2. Start this dashboard:
+
 ```bash
 bun install
-cp .env.example .env     # Add your RPC URLs
-bun run db:migrate       # Create SQLite tables
-bun run seed             # Fetch all vaults + DefiLlama + curation (~2 min, requires ETH_RPC_URL)
+bun run dev:dashboard
 ```
 
-Start the dashboard:
+The dashboard runs on `http://localhost:5173` and proxies `/api/*` to `http://localhost:3001` by default.
+
+If your backend is running somewhere else locally, set:
 
 ```bash
-bun run dev:api          # API on http://localhost:3456
-bun run dev:dashboard    # Dashboard on http://localhost:5173
+VITE_LOCAL_API_PROXY_TARGET=http://localhost:3001
 ```
 
-## What It Does
+For production or direct remote API usage, `packages/dashboard` also honors:
 
-- **TVL aggregation** across 9 chains (Ethereum, Arbitrum, Base, Optimism, Polygon, Fantom, Gnosis, Katana, Hyperliquid) with V3 allocator/strategy overlap deduction
-- **DefiLlama comparison** against `yearn-finance` and `yearn-curating` protocols, broken down by chain and category
-- **Fee revenue tracking** from vault harvest reports — performance and management fees with weekly/monthly history
-- **Analysis** — dead TVL detection, retired vault tracking, depositor concentration
-- **Interactive audit TUI** — drill into Chain > Category > Vault > Strategy with filter toggles
+```bash
+VITE_API_URL=https://your-api-host
+```
 
-## Data Sources
+## Useful Commands
 
-| Source | What | Command |
-|--------|------|---------|
-| [Kong API](https://kong.yearn.fi) | V2/V3 vaults, strategies, debts, fees, harvest reports | `fetch:kong`, `fetch:reports` |
-| On-chain (viem) | V1 vaults, V2 fee rates, Turtle Club vaults | `fetch:v1`, `scripts/fetch-v2-fees.ts` |
-| [Morpho Blue API](https://blue-api.morpho.org) | Curation vaults (Morpho) | `fetch:curation` |
-| [DefiLlama API](https://defillama.com) | Protocol TVL snapshots, historical token prices | `fetch:defillama`, `scripts/reprice-reports.ts` |
+```bash
+bun run dev:dashboard         # Vite dashboard on :5173
+bun run typecheck             # TypeScript across the repo
+bun run lint                  # Biome check
+bun run format                # Biome format
+```
 
 ## Architecture
 
+```text
+yearn.fi holdings backend  --->  /api/holdings/*  --->  yearn-metrics dashboard
+                                      ^
+                                      |
+                           Vite proxy in local dev
 ```
-packages/shared  →  packages/db  →  packages/api  →  packages/dashboard
-                                 ↗
-              scripts/ (data fetchers)
-```
 
-- **shared** — Types, constants, curation registry, pricing interface
-- **db** — SQLite via Drizzle ORM (9 tables)
-- **api** — Hono REST API (TVL, comparison, fees, analysis)
-- **dashboard** — React + Vite + Recharts (5 tabs)
-- **scripts/** — Data fetchers, repricing, interactive audit TUI
+Relevant frontend entry points:
 
-## API
+- `packages/dashboard/src/App.tsx`
+- `packages/dashboard/src/panels/PnlPanel.tsx`
+- `packages/dashboard/src/hooks.tsx`
 
-```
-GET /api/tvl/                              # TVL summary
-GET /api/tvl/vaults?chainId=1&category=v2  # Per-vault list
-GET /api/tvl/overlap                       # Double-count details
+## Notes On Legacy TVL Code
 
-GET /api/comparison/                       # Us vs DefiLlama
+This repository still contains the older TVL stack:
 
-GET /api/fees/?since=1709251200            # Fee revenue
-GET /api/fees/history?interval=weekly      # Fee history
+- `packages/api`
+- `packages/db`
+- `packages/shared`
+- `scripts/`
 
-GET /api/analysis/dead                     # Dead TVL (no harvests 90d)
-GET /api/analysis/retired                  # Retired vault TVL
-GET /api/analysis/sticky                   # Sticky TVL
-GET /api/analysis/depositors/:address      # Depositor lookup
-```
+That code is legacy for the current product direction. The live dashboard no longer mounts the TVL views, and the PnL explorer does not depend on the SQLite seed pipeline in this repo.
+
+So for normal PnL frontend work:
+
+- you do not need `bun run seed`
+- you do not need `bun run db:migrate`
+- you do not need `bun run dev:api` from this repo
+
+Those commands are only relevant if you are working on the historical TVL tooling that still lives here.
 
 ## Known Limitations
 
-- **Velo/Aero LP pricing is approximate**: Velodrome (Optimism) and Aerodrome (Base) LP token prices are derived from current on-chain reserves and current underlying token prices. When used to reprice historical harvest reports, this is an approximation — it does not reflect reserves or token prices at the time of each harvest. Accurate historical LP pricing would require archive RPC nodes and per-block reserve reads.
-- **~209 reports remain unpriced** (~0.5%): Exotic tokens with no DefiLlama price and no usable snapshot fallback (e.g. defunct stablecoins, delisted tokens).
-
-## Environment
-
-Copy `.env.example` and fill in RPC URLs. Only `ETH_RPC_URL` is strictly required — other chain RPCs are needed for V2 fee reads and curation vault discovery.
+- Historical PnL attribution is not available yet. The history route returns portfolio value history, not realized/unrealized/windfall time series.
+- Drilldown detail is fetched per vault family on demand, not preloaded for the whole address.
+- This frontend includes compatibility normalization for both the legacy and renamed holdings response fields while backend contracts settle.
 
 ## License
 

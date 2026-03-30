@@ -14,14 +14,19 @@
     "fetch:v1": "bun run scripts/fetch-v1-vaults.ts",
     "fetch:depositors": "bun run scripts/fetch-depositors.ts",
     "fetch:prices": "bun run scripts/fetch-historical-prices.ts",
+    "fetch:tvl-history": "bun run scripts/fetch-tvl-history.ts",
     "refresh:retired": "bun run scripts/refresh-retired.ts",
     "report": "bun run scripts/generate-report.ts",
     "audit": "bun run ./scripts/audit.ts",
     "db:generate": "bun run --cwd packages/db generate",
     "db:migrate": "bun run packages/db/src/migrate.ts",
-    "typecheck": "tsc --noEmit && tsc --noEmit -p packages/dashboard/tsconfig.json"
+    "typecheck": "tsc --noEmit && tsc --noEmit -p packages/dashboard/tsconfig.json",
+    "lint": "biome check .",
+    "lint:fix": "biome check --fix .",
+    "format": "biome format --write ."
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.4.8",
     "@types/bun": "^1.3.10",
     "@types/pdfkit": "^0.17.5",
     "pdfkit": "^0.17.2",

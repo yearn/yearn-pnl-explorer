@@ -38,14 +38,16 @@ The dashboard runs on `http://localhost:5173` and proxies `/api/*` to `http://lo
 If your backend is running somewhere else locally, set:
 
 ```bash
-VITE_LOCAL_API_PROXY_TARGET=http://localhost:3001
+LOCAL_API_PROXY_TARGET=http://localhost:3001
 ```
 
-For production or direct remote API usage, `packages/dashboard` also honors:
+For Vercel or other server-side deployments, set:
 
 ```bash
-VITE_API_URL=https://your-api-host
+API_PROXY_TARGET=https://your-api-host
 ```
+
+`API_PROXY_TARGET` is only read by the server-side proxy route in `packages/dashboard/api`, so it is not exposed to the client bundle.
 
 ## Useful Commands
 

@@ -2,6 +2,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 export const API_BASE = import.meta.env.VITE_API_URL || "";
 
+function finiteNumber(value: number | null | undefined, fallback = 0): number {
+  return Number.isFinite(value) ? (value as number) : fallback;
+}
+
 // Simple in-memory cache for fetch responses
 const fetchCache = new Map<string, { data: unknown; timestamp: number }>();
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
@@ -104,29 +108,33 @@ export function useFetch<T>(url: string | null) {
 }
 
 /** Format USD amount: $1.2B / $340.5M / $12.3K / $999 */
-export function fmt(n: number, decimals = 1): string {
-  if (Math.abs(n) >= 1e9) return `$${(n / 1e9).toFixed(decimals)}B`;
-  if (Math.abs(n) >= 1e6) return `$${(n / 1e6).toFixed(decimals)}M`;
-  if (Math.abs(n) >= 1e3) return `$${(n / 1e3).toFixed(decimals)}K`;
-  return `$${Math.abs(n) < 0.5 ? "0" : n.toFixed(0)}`;
+export function fmt(n: number | null | undefined, decimals = 1): string {
+  const value = finiteNumber(n);
+  if (Math.abs(value) >= 1e9) return `$${(value / 1e9).toFixed(decimals)}B`;
+  if (Math.abs(value) >= 1e6) return `$${(value / 1e6).toFixed(decimals)}M`;
+  if (Math.abs(value) >= 1e3) return `$${(value / 1e3).toFixed(decimals)}K`;
+  return `$${Math.abs(value) < 0.5 ? "0" : value.toFixed(0)}`;
 }
 
 /** Format raw number without dollar sign: 1.2B / 340.5M / 12.3K */
-export function fmtNum(n: number, decimals = 1): string {
-  if (Math.abs(n) >= 1e9) return `${(n / 1e9).toFixed(decimals)}B`;
-  if (Math.abs(n) >= 1e6) return `${(n / 1e6).toFixed(decimals)}M`;
-  if (Math.abs(n) >= 1e3) return `${(n / 1e3).toFixed(decimals)}K`;
-  return n.toFixed(0);
+export function fmtNum(n: number | null | undefined, decimals = 1): string {
+  const value = finiteNumber(n);
+  if (Math.abs(value) >= 1e9) return `${(value / 1e9).toFixed(decimals)}B`;
+  if (Math.abs(value) >= 1e6) return `${(value / 1e6).toFixed(decimals)}M`;
+  if (Math.abs(value) >= 1e3) return `${(value / 1e3).toFixed(decimals)}K`;
+  return value.toFixed(0);
 }
 
 /** Format as signed percentage: +5.2% / -3.1% */
-export function pct(n: number): string {
-  return `${n >= 0 ? "+" : ""}${n.toFixed(1)}%`;
+export function pct(n: number | null | undefined): string {
+  const value = finiteNumber(n);
+  return `${value >= 0 ? "+" : ""}${value.toFixed(1)}%`;
 }
 
 /** Format basis points as percentage: 1000 → 10% */
-export function bpsPct(bps: number): string {
-  return `${(bps / 100).toFixed(1)}%`;
+export function bpsPct(bps: number | null | undefined): string {
+  const value = finiteNumber(bps);
+  return `${(value / 100).toFixed(1)}%`;
 }
 
 /** Truncate ethereum address */
@@ -135,8 +143,9 @@ export function shortAddr(addr: string): string {
 }
 
 /** Format a decimal as percentage: 0.05 → 5.00% */
-export function pctFmt(n: number): string {
-  return `${(n * 100).toFixed(2)}%`;
+export function pctFmt(n: number | null | undefined): string {
+  const value = finiteNumber(n);
+  return `${(value * 100).toFixed(2)}%`;
 }
 
 /** Format relative time: "2m ago" / "1h ago" */

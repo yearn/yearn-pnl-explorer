@@ -41,6 +41,7 @@ type PaginationMode = "paged" | "all";
 type VaultStatus = "ok" | "missing_metadata" | "missing_price" | "missing_pps";
 type CostBasisStatus = "complete" | "partial";
 type LotLocation = "vault" | "staked";
+type IncomingLotLocation = LotLocation | "wallet";
 
 interface HoldingsHistoryResponse {
   address: string;
@@ -83,6 +84,8 @@ interface HoldingsPnLVault {
   sharesFormatted: number;
   vaultShares: string;
   vaultSharesFormatted: number;
+  walletShares?: string;
+  walletSharesFormatted?: number;
   stakedShares: string;
   stakedSharesFormatted: number;
   knownCostBasisShares: string;
@@ -91,6 +94,7 @@ interface HoldingsPnLVault {
   tokenPrice: number;
   currentUnderlying: number;
   vaultUnderlying: number;
+  walletUnderlying?: number;
   stakedUnderlying: number;
   currentKnownUnderlying: number;
   currentUnknownUnderlying: number;
@@ -98,6 +102,7 @@ interface HoldingsPnLVault {
   knownCostBasisUsd: number;
   currentValueUsd: number;
   vaultValueUsd: number;
+  walletValueUsd?: number;
   stakedValueUsd: number;
   unknownCostBasisValueUsd: number;
   windfallPnlUsd: number;
@@ -114,6 +119,8 @@ interface HoldingsPnLVault {
     underlyingWithdrawals: number;
     stakes: number;
     unstakes: number;
+    stakingWraps?: number;
+    stakingUnwraps?: number;
     externalTransfersIn: number;
     externalTransfersOut: number;
     migrationsIn: number;
@@ -154,7 +161,7 @@ interface HoldingsPnLRealizedEntry {
 
 interface HoldingsPnLUnknownTransferInEntry {
   timestamp: number;
-  location: LotLocation;
+  location: IncomingLotLocation;
   shares: string;
   sharesFormatted: number;
   pricePerShareAtReceipt: number;
@@ -201,14 +208,22 @@ interface HoldingsPnLJournalEntry {
   withdrawAssetsFormatted: number;
   stakeShares: string;
   stakeSharesFormatted: number;
+  wrapShares?: string;
+  wrapSharesFormatted?: number;
   unstakeShares: string;
   unstakeSharesFormatted: number;
+  unwrapShares?: string;
+  unwrapSharesFormatted?: number;
   unknownInVaultShares: string;
   unknownInVaultSharesFormatted: number;
+  unknownInWalletShares?: string;
+  unknownInWalletSharesFormatted?: number;
   unknownInStakedShares: string;
   unknownInStakedSharesFormatted: number;
   transferOutVaultShares: string;
   transferOutVaultSharesFormatted: number;
+  transferOutWalletShares?: string;
+  transferOutWalletSharesFormatted?: number;
   transferOutStakedShares: string;
   transferOutStakedSharesFormatted: number;
   realizedKnownShares: string;
@@ -220,8 +235,10 @@ interface HoldingsPnLJournalEntry {
   realizedPnlAssets: string;
   realizedPnlAssetsFormatted: number;
   vaultLotsBefore: HoldingsPnlJournalLotSummary;
+  walletLotsBefore?: HoldingsPnlJournalLotSummary;
   stakedLotsBefore: HoldingsPnlJournalLotSummary;
   vaultLotsAfter: HoldingsPnlJournalLotSummary;
+  walletLotsAfter?: HoldingsPnlJournalLotSummary;
   stakedLotsAfter: HoldingsPnlJournalLotSummary;
 }
 
@@ -237,6 +254,7 @@ interface HoldingsPnLResponse {
 interface HoldingsPnLDrilldownVault extends HoldingsPnLVault {
   currentLots: {
     vault: HoldingsPnLLot[];
+    wallet?: HoldingsPnLLot[];
     staked: HoldingsPnLLot[];
   };
   realizedEntries: HoldingsPnLRealizedEntry[];
@@ -296,11 +314,12 @@ function buildApiPath(path: string, params: Record<string, string>): string {
   return `${path}?${search.toString()}`;
 }
 
-function formatAxis(value: number): string {
-  if (Math.abs(value) >= 1e9) return `$${(value / 1e9).toFixed(1)}B`;
-  if (Math.abs(value) >= 1e6) return `$${(value / 1e6).toFixed(0)}M`;
-  if (Math.abs(value) >= 1e3) return `$${(value / 1e3).toFixed(0)}K`;
-  return `$${value.toFixed(0)}`;
+function formatAxis(value: number | null | undefined): string {
+  const safeValue = Number.isFinite(value) ? (value as number) : 0;
+  if (Math.abs(safeValue) >= 1e9) return `$${(safeValue / 1e9).toFixed(1)}B`;
+  if (Math.abs(safeValue) >= 1e6) return `$${(safeValue / 1e6).toFixed(0)}M`;
+  if (Math.abs(safeValue) >= 1e3) return `$${(safeValue / 1e3).toFixed(0)}K`;
+  return `$${safeValue.toFixed(0)}`;
 }
 
 function formatUsdDetail(value: number | null | undefined, digits = 2): string {
@@ -428,6 +447,93 @@ function locationBadge(location: LotLocation) {
       {location === "vault" ? "Vault" : "Staked"}
     </span>
   );
+}
+
+function emptyLotSummary(): HoldingsPnlJournalLotSummary {
+  return {
+    lotCount: 0,
+    totalShares: "0",
+    knownShares: "0",
+    unknownShares: "0",
+    totalKnownCostBasis: "0",
+    totalSharesFormatted: 0,
+    knownSharesFormatted: 0,
+    unknownSharesFormatted: 0,
+    totalKnownCostBasisFormatted: 0,
+  };
+}
+
+function normalizeLotLocation(location: IncomingLotLocation | null | undefined): LotLocation {
+  return location === "staked" ? "staked" : "vault";
+}
+
+function normalizeVault(vault: HoldingsPnLVault): HoldingsPnLVault {
+  return {
+    ...vault,
+    vaultShares: vault.vaultShares ?? vault.walletShares ?? "0",
+    vaultSharesFormatted: vault.vaultSharesFormatted ?? vault.walletSharesFormatted ?? 0,
+    vaultUnderlying: vault.vaultUnderlying ?? vault.walletUnderlying ?? 0,
+    vaultValueUsd: vault.vaultValueUsd ?? vault.walletValueUsd ?? 0,
+    eventCounts: {
+      ...vault.eventCounts,
+      stakes: vault.eventCounts.stakes ?? vault.eventCounts.stakingWraps ?? 0,
+      unstakes: vault.eventCounts.unstakes ?? vault.eventCounts.stakingUnwraps ?? 0,
+    },
+  };
+}
+
+function normalizeJournalEntry(entry: HoldingsPnLJournalEntry): HoldingsPnLJournalEntry {
+  return {
+    ...entry,
+    stakeShares: entry.stakeShares ?? entry.wrapShares ?? "0",
+    stakeSharesFormatted: entry.stakeSharesFormatted ?? entry.wrapSharesFormatted ?? 0,
+    unstakeShares: entry.unstakeShares ?? entry.unwrapShares ?? "0",
+    unstakeSharesFormatted: entry.unstakeSharesFormatted ?? entry.unwrapSharesFormatted ?? 0,
+    unknownInVaultShares: entry.unknownInVaultShares ?? entry.unknownInWalletShares ?? "0",
+    unknownInVaultSharesFormatted: entry.unknownInVaultSharesFormatted ?? entry.unknownInWalletSharesFormatted ?? 0,
+    transferOutVaultShares: entry.transferOutVaultShares ?? entry.transferOutWalletShares ?? "0",
+    transferOutVaultSharesFormatted:
+      entry.transferOutVaultSharesFormatted ?? entry.transferOutWalletSharesFormatted ?? 0,
+    vaultLotsBefore: entry.vaultLotsBefore ?? entry.walletLotsBefore ?? emptyLotSummary(),
+    vaultLotsAfter: entry.vaultLotsAfter ?? entry.walletLotsAfter ?? emptyLotSummary(),
+  };
+}
+
+function normalizeDrilldownVault(vault: HoldingsPnLDrilldownVault): HoldingsPnLDrilldownVault {
+  const normalizedVault = normalizeVault(vault);
+  return {
+    ...vault,
+    ...normalizedVault,
+    currentLots: {
+      vault: vault.currentLots.vault ?? vault.currentLots.wallet ?? [],
+      staked: vault.currentLots.staked ?? [],
+    },
+    realizedEntries: vault.realizedEntries,
+    unknownTransferInEntries: vault.unknownTransferInEntries.map((entry) => ({
+      ...entry,
+      location: normalizeLotLocation(entry.location),
+    })),
+    unknownWithdrawalEntries: vault.unknownWithdrawalEntries,
+    journal: vault.journal.map(normalizeJournalEntry),
+  };
+}
+
+function normalizePnlResponse(response: HoldingsPnLResponse | null): HoldingsPnLResponse | null {
+  if (!response) return null;
+  return {
+    ...response,
+    vaults: response.vaults.map(normalizeVault),
+  };
+}
+
+function normalizeDrilldownResponse(
+  response: HoldingsPnLDrilldownResponse | null,
+): HoldingsPnLDrilldownResponse | null {
+  if (!response) return null;
+  return {
+    ...response,
+    vaults: response.vaults.map(normalizeDrilldownVault),
+  };
 }
 
 function lotSummaryCard(title: string, summary: HoldingsPnlJournalLotSummary) {
@@ -593,11 +699,12 @@ function DrilldownDrawer({
       : null;
 
   const {
-    data: drilldownData,
+    data: drilldownDataRaw,
     loading: drilldownLoading,
     error: drilldownError,
     fetchedAt: drilldownFetchedAt,
   } = useFetch<HoldingsPnLDrilldownResponse>(drawerUrl);
+  const drilldownData = useMemo(() => normalizeDrilldownResponse(drilldownDataRaw), [drilldownDataRaw]);
 
   const drilldownVault = drilldownData?.vaults[0] ?? null;
   const activeVault = drilldownVault || selectedVault;
@@ -855,7 +962,7 @@ function DrilldownDrawer({
                             .map((entry, index) => (
                               <tr key={`unknown-in-${entry.timestamp}-${index}`}>
                                 <td>{formatDateTime(entry.timestamp)}</td>
-                                <td>{locationBadge(entry.location)}</td>
+                                <td>{locationBadge(normalizeLotLocation(entry.location))}</td>
                                 <td className="text-right">{formatAmount(entry.sharesFormatted)}</td>
                                 <td className="text-right">{formatAmount(entry.receiptUnderlying)}</td>
                                 <td className="text-right">{formatUsdDetail(entry.receiptValueUsd)}</td>
@@ -994,8 +1101,9 @@ export function PnlPanel() {
 
   const { data: history, loading: historyLoading, error: historyError, fetchedAt: historyFetchedAt } =
     useFetch<HoldingsHistoryResponse>(historyUrl);
-  const { data: pnl, loading: pnlLoading, error: pnlError, fetchedAt: pnlFetchedAt } =
+  const { data: pnlRaw, loading: pnlLoading, error: pnlError, fetchedAt: pnlFetchedAt } =
     useFetch<HoldingsPnLResponse>(pnlUrl);
+  const pnl = useMemo(() => normalizePnlResponse(pnlRaw), [pnlRaw]);
 
   const activeFetchedAt = Math.max(historyFetchedAt || 0, pnlFetchedAt || 0) || null;
   const isOverviewLoading = submittedAddress !== "" && (!history || !pnl) && (historyLoading || pnlLoading);
@@ -1352,7 +1460,14 @@ export function PnlPanel() {
               <div className="metric metric-yellow">
                 <div className="label">Windfall PnL</div>
                 <div className="value">{fmt(pnl.summary.totalWindfallPnlUsd)}</div>
-                <div className="sub">Attributed by {unknownMode.replace("_", " ")} mode</div>
+                <div className="sub">Receipt-time value isolated from market PnL in {unknownMode.replace("_", " ")} mode</div>
+              </div>
+              <div className={`metric ${pnl.summary.totalEconomicGainUsd >= 0 ? "metric-green" : "metric-red"}`}>
+                <div className="label">Total Economic Gain</div>
+                <div className={`value ${pnlTextClass(pnl.summary.totalEconomicGainUsd)}`}>
+                  {fmt(pnl.summary.totalEconomicGainUsd)}
+                </div>
+                <div className="sub">Total PnL + windfall attribution</div>
               </div>
               {pnl.summary.totalUnknownCostBasisValueUsd > 0 && (
                 <div className="metric metric-blue">
@@ -1490,14 +1605,16 @@ export function PnlPanel() {
                     {formatUsdDetail(qualityStats.stakedValueUsd)}
                   </div>
                   <div className="pnl-list-row">
-                    Missing inputs: {qualityStats.missingMetadata} metadata, {qualityStats.missingPrice} price,{" "}
-                    {qualityStats.missingPps} PPS
-                  </div>
-                  <div className="pnl-list-row">
-                    Economic gain: {formatUsdDetail(pnl.summary.totalEconomicGainUsd)} from total PnL + windfall attribution
-                  </div>
+                  Missing inputs: {qualityStats.missingMetadata} metadata, {qualityStats.missingPrice} price,{" "}
+                  {qualityStats.missingPps} PPS
+                </div>
+                <div className="pnl-list-row">
+                  Economic bridge: {formatUsdDetail(pnl.summary.totalPnlUsd)} PnL +{" "}
+                  {formatUsdDetail(pnl.summary.totalWindfallPnlUsd)} windfall ={" "}
+                  {formatUsdDetail(pnl.summary.totalEconomicGainUsd)}
                 </div>
               </div>
+            </div>
 
               <div className="card">
                 <h2>By Chain</h2>

@@ -41,13 +41,11 @@ If your backend is running somewhere else locally, set:
 LOCAL_API_PROXY_TARGET=http://localhost:3001
 ```
 
-For Vercel or other server-side deployments, set:
+For Vercel or other deployed frontend environments, set:
 
 ```bash
-API_PROXY_TARGET=https://your-api-host
+VITE_API_URL=https://your-api-host
 ```
-
-`API_PROXY_TARGET` is only read by the server-side proxy route in `packages/dashboard/api`, so it is not exposed to the client bundle.
 
 ## Useful Commands
 

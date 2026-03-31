@@ -8,19 +8,16 @@ const PnlPanel = lazy(() => import("./panels/PnlPanel").then((m) => ({ default: 
 const TABS = [{ key: "PnL", icon: "\u25C8", label: "PnL Explorer" }] as const;
 type Tab = (typeof TABS)[number]["key"];
 
-export type Theme = "dark" | "light";
 export type Density = "comfortable" | "compact";
 
 export const DashboardContext = createContext<{
   chainFilter: string;
   density: Density;
-  theme: Theme;
   lastFetchedAt: number | null;
   setLastFetchedAt: (ts: number) => void;
 }>({
   chainFilter: "all",
   density: "comfortable",
-  theme: "dark",
   lastFetchedAt: null,
   setLastFetchedAt: () => {},
 });
@@ -38,17 +35,12 @@ export const App = () => {
   const [tab, setTab] = useState<Tab>("PnL");
   const [collapsed, setCollapsed] = useState(false);
   const [cmdkOpen, setCmdkOpen] = useState(false);
-  const [theme, setTheme] = useState<Theme>(() => {
-    if (typeof window === "undefined") return "dark";
-    const savedTheme = localStorage.getItem("theme");
-    return savedTheme === "light" ? "light" : "dark";
-  });
   const [lastFetchedAt, setLastFetchedAt] = useState<number | null>(null);
 
   useEffect(() => {
-    document.documentElement.setAttribute("data-theme", theme);
-    localStorage.setItem("theme", theme);
-  }, [theme]);
+    document.documentElement.setAttribute("data-theme", "dark");
+    localStorage.removeItem("theme");
+  }, []);
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
@@ -66,16 +58,11 @@ export const App = () => {
     if (match) setTab(match.key);
   }, []);
 
-  const toggleTheme = useCallback(() => {
-    setTheme((currentTheme) => (currentTheme === "dark" ? "light" : "dark"));
-  }, []);
-
   return (
     <DashboardContext.Provider
       value={{
         chainFilter: "all",
         density: "comfortable",
-        theme,
         lastFetchedAt,
         setLastFetchedAt,
       }}
@@ -132,15 +119,6 @@ export const App = () => {
                   </span>
                 </span>
               )}
-
-              <button
-                className="theme-toggle"
-                onClick={toggleTheme}
-                title={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
-                aria-label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
-              >
-                {theme === "dark" ? "\u2600" : "\u263D"}
-              </button>
 
               <button className="kbd-hint" onClick={() => setCmdkOpen(true)}>
                 Search <kbd>{navigator.platform?.includes("Mac") ? "\u2318" : "Ctrl"}</kbd>

@@ -673,6 +673,20 @@ function renderJournalDeltas(entry: HoldingsPnLJournalEntry): ReactNode[] {
     ));
 }
 
+function getUnknownTransferTxHash(
+  entry: HoldingsPnLUnknownTransferInEntry,
+  journal: HoldingsPnLJournalEntry[],
+): string | null {
+  const match = journal.find((row) => {
+    if (row.timestamp !== entry.timestamp) return false;
+    return entry.location === "vault"
+      ? row.unknownInVaultShares === entry.shares
+      : row.unknownInStakedShares === entry.shares;
+  });
+
+  return match?.txHash ?? null;
+}
+
 function DrilldownDrawer({
   address,
   selectedVault,
@@ -937,7 +951,7 @@ function DrilldownDrawer({
                 <div className="card pnl-drawer-card">
                   <h2>Unknown Transfer-ins</h2>
                   <div className="pnl-section-note">
-                    Receipt tx hashes are not exposed on these rows yet. Use the journal timeline for linked transaction inspection.
+                    Receipt tx links are derived from matching journal rows when the timestamp and unknown-share movement align.
                   </div>
                   {drilldownVault.unknownTransferInEntries.length === 0 ? (
                     <div className="pnl-empty-state">No unknown-basis receipts were recorded for this family.</div>
@@ -953,23 +967,40 @@ function DrilldownDrawer({
                             <th className="text-right">Receipt Value</th>
                             <th className="text-right">PPS</th>
                             <th className="text-right">Token Price</th>
+                            <th>Tx</th>
                           </tr>
                         </thead>
                         <tbody>
                           {drilldownVault.unknownTransferInEntries
                             .slice()
                             .reverse()
-                            .map((entry, index) => (
-                              <tr key={`unknown-in-${entry.timestamp}-${index}`}>
-                                <td>{formatDateTime(entry.timestamp)}</td>
-                                <td>{locationBadge(normalizeLotLocation(entry.location))}</td>
-                                <td className="text-right">{formatAmount(entry.sharesFormatted)}</td>
-                                <td className="text-right">{formatAmount(entry.receiptUnderlying)}</td>
-                                <td className="text-right">{formatUsdDetail(entry.receiptValueUsd)}</td>
-                                <td className="text-right">{formatAmount(entry.pricePerShareAtReceipt, 6)}</td>
-                                <td className="text-right">{formatUsdDetail(entry.tokenPriceAtReceipt, 4)}</td>
-                              </tr>
-                            ))}
+                            .map((entry, index) => {
+                              const txHash = getUnknownTransferTxHash(entry, drilldownVault.journal);
+                              const txHref = txHash ? explorerTxHref(drilldownVault.chainId, txHash) : null;
+
+                              return (
+                                <tr key={`unknown-in-${entry.timestamp}-${index}`}>
+                                  <td>{formatDateTime(entry.timestamp)}</td>
+                                  <td>{locationBadge(normalizeLotLocation(entry.location))}</td>
+                                  <td className="text-right">{formatAmount(entry.sharesFormatted)}</td>
+                                  <td className="text-right">{formatAmount(entry.receiptUnderlying)}</td>
+                                  <td className="text-right">{formatUsdDetail(entry.receiptValueUsd)}</td>
+                                  <td className="text-right">{formatAmount(entry.pricePerShareAtReceipt, 6)}</td>
+                                  <td className="text-right">{formatUsdDetail(entry.tokenPriceAtReceipt, 4)}</td>
+                                  <td>
+                                    {txHref && txHash ? (
+                                      <a href={txHref} target="_blank" rel="noreferrer" className="pnl-table-action">
+                                        <span>View tx</span>
+                                        <span className="pnl-table-action-meta">{shortAddr(txHash)}</span>
+                                        <IconLinkOut className="pnl-table-action-icon" />
+                                      </a>
+                                    ) : (
+                                      <span className="pnl-table-action-muted">No match</span>
+                                    )}
+                                  </td>
+                                </tr>
+                              );
+                            })}
                         </tbody>
                       </table>
                     </div>

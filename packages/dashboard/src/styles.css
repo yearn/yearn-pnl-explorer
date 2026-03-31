@@ -1145,7 +1145,7 @@ th.text-right {
 .pnl-drawer-header {
   position: sticky;
   top: 0;
-  z-index: 1;
+  z-index: 4;
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
@@ -1567,6 +1567,41 @@ th.text-right {
   width: 0.85rem;
   height: 0.85rem;
   flex: 0 0 auto;
+}
+
+.pnl-table-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.38rem;
+  color: var(--text-1);
+  text-decoration: none;
+  font-size: 0.76rem;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: color 0.15s, opacity 0.15s;
+}
+
+.pnl-table-action:hover {
+  color: var(--accent);
+  opacity: 0.88;
+}
+
+.pnl-table-action-meta {
+  color: var(--text-3);
+  font-size: 0.72rem;
+  font-weight: 500;
+}
+
+.pnl-table-action-icon {
+  width: 0.85rem;
+  height: 0.85rem;
+  flex: 0 0 auto;
+}
+
+.pnl-table-action-muted {
+  color: var(--text-3);
+  font-size: 0.76rem;
+  white-space: nowrap;
 }
 
 .explorer-link {

@@ -6,3 +6,4 @@ dist/
 reports/
 .env
 .DS_Store
+.wrangler
